@@ -39,6 +39,11 @@ import com.metrolist.music.ui.component.ReleaseNotesCard
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.Updater
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.items
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +54,45 @@ fun SettingsScreen(
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
     val isAndroid12OrLater = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val (dislikedSongIds, onDislikedSongIdsChange) =
+        com.metrolist.music.utils.rememberPreference(com.metrolist.music.constants.DislikedSongsKey, emptySet())
+    var showDislikedDialog by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+
+    if (showDislikedDialog) {
+        val database = com.metrolist.music.LocalDatabase.current
+        com.metrolist.music.ui.component.ListDialog(onDismiss = { showDislikedDialog = false }) {
+            item {
+                Text(
+                    text = stringResource(R.string.disliked_songs_desc),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                )
+            }
+            if (dislikedSongIds.isEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.disliked_songs_empty),
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+                    )
+                }
+            }
+            items(dislikedSongIds.toList(), key = { it }) { id ->
+                val song by database.song(id).collectAsStateWithLifecycle(initialValue = null)
+                ListItem(
+                    headlineContent = { Text(song?.song?.title ?: id) },
+                    supportingContent = {
+                        song?.artists?.joinToString { it.name }?.takeIf { it.isNotBlank() }?.let { Text(it) }
+                    },
+                    leadingContent = {
+                        Icon(painterResource(R.drawable.thumb_down), contentDescription = null)
+                    },
+                    // Tap a song to allow it again
+                    modifier = Modifier.clickable { onDislikedSongIdsChange(dislikedSongIds - id) },
+                )
+            }
+        }
+    }
     val hasAndroidAuto = remember {
         try {
             context.packageManager.getPackageInfo(
@@ -82,6 +126,12 @@ fun SettingsScreen(
                     icon = painterResource(R.drawable.palette),
                     title = { Text(stringResource(R.string.appearance)) },
                     onClick = { navController.navigate("settings/appearance") }
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.stats),
+                    title = { Text(stringResource(R.string.listening_stats)) },
+                    description = { Text(stringResource(R.string.listening_stats_desc)) },
+                    onClick = { navController.navigate("stats") }
                 )
             )
         )
@@ -106,6 +156,20 @@ fun SettingsScreen(
                     icon = painterResource(R.drawable.translate),
                     title = { Text(stringResource(R.string.ai_lyrics_translation)) },
                     onClick = { navController.navigate("settings/ai") }
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.thumb_down),
+                    title = { Text(stringResource(R.string.disliked_songs)) },
+                    description = {
+                        Text(
+                            if (dislikedSongIds.isEmpty()) {
+                                stringResource(R.string.disliked_songs_empty)
+                            } else {
+                                "${dislikedSongIds.size}"
+                            },
+                        )
+                    },
+                    onClick = { showDislikedDialog = true }
                 )
             )
         )

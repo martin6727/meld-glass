@@ -611,6 +611,21 @@ interface DatabaseDao {
     @Query("SELECT SUM(playTime) FROM event WHERE songId = :songId")
     fun getTotalPlayTimeForSong(songId: String): Long?
 
+    @Query("SELECT COUNT(*) FROM event WHERE timestamp >= :fromTimeStamp AND timestamp <= :toTimeStamp")
+    fun getPlayCountInRange(fromTimeStamp: LocalDateTime, toTimeStamp: LocalDateTime): Flow<Int>
+
+    // Timestamps are stored as local wall-clock time, so whole days of millis are calendar days
+    @Query(
+        """
+        SELECT (timestamp / 86400000) AS day, SUM(playTime) AS playTime
+        FROM event
+        WHERE timestamp >= :fromTimeStamp AND timestamp <= :toTimeStamp
+        GROUP BY day
+        ORDER BY day
+    """
+    )
+    fun getDailyPlayTimeInRange(fromTimeStamp: LocalDateTime, toTimeStamp: LocalDateTime): Flow<List<com.metrolist.music.db.entities.DailyPlayTime>>
+
     @Query("SELECT COUNT(DISTINCT songId) FROM event WHERE timestamp >= :fromTimeStamp AND timestamp <= :toTimeStamp")
     fun getUniqueSongCountInRange(fromTimeStamp: LocalDateTime, toTimeStamp: LocalDateTime): Flow<Int>
 

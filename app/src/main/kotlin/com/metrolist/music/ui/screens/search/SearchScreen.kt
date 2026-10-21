@@ -46,6 +46,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -126,6 +127,11 @@ fun SearchScreen(
     }
 
     var searchSource by rememberEnumPreference(SearchSourceKey, SearchSource.ONLINE)
+    val (useSpotifySearch, onUseSpotifySearchChange) = rememberPreference(com.metrolist.music.constants.UseSpotifySearchKey, false)
+    val spotifyEnabled by rememberPreference(com.metrolist.music.constants.EnableSpotifyKey, false)
+    val spotifyToken by rememberPreference(com.metrolist.music.constants.SpotifyAccessTokenKey, "")
+    val spotifyReady = spotifyEnabled && spotifyToken.isNotEmpty()
+    val searchingSpotify = useSpotifySearch && spotifyReady
     var query by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue())
     }
@@ -206,7 +212,8 @@ fun SearchScreen(
                                             stringResource(
                                                 when (searchSource) {
                                                     SearchSource.LOCAL -> R.string.search_library
-                                                    SearchSource.ONLINE -> R.string.search_yt_music
+                                                    SearchSource.ONLINE ->
+                                                        if (searchingSpotify) R.string.search_spotify else R.string.search_yt_music
                                                 },
                                             ),
                                         style =
@@ -296,13 +303,27 @@ fun SearchScreen(
                 }
 
                 SearchSource.ONLINE -> {
-                    OnlineSearchScreen(
-                        query = query.text,
-                        onQueryChange = { query = it },
-                        onSearch = onSearchFromSuggestion,
-                        onDismiss = { /* Don't dismiss when searching from suggestions */ },
-                        pureBlack = pureBlack,
-                    )
+                    androidx.compose.foundation.layout.Column {
+                        com.metrolist.music.ui.component.SearchSourceSwitch(
+                            useSpotify = searchingSpotify,
+                            onSelect = { spotify ->
+                                if (spotify && !spotifyReady) {
+                                    // Spotify isn't connected yet: take them to where they can log in
+                                    navController.navigate("settings/integrations/spotify")
+                                } else {
+                                    onUseSpotifySearchChange(spotify)
+                                }
+                            },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                        OnlineSearchScreen(
+                            query = query.text,
+                            onQueryChange = { query = it },
+                            onSearch = onSearchFromSuggestion,
+                            onDismiss = { /* Don't dismiss when searching from suggestions */ },
+                            pureBlack = pureBlack,
+                        )
+                    }
                 }
             }
 

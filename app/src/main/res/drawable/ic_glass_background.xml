@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Meld Glass launcher background: deep violet with pink, violet and amber glows -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endX="108"
+                android:endY="108"
+                android:startX="0"
+                android:startY="0"
+                android:type="linear">
+                <item android:color="#FF2A0E4A" android:offset="0" />
+                <item android:color="#FF0A0712" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="36"
+                android:centerY="34"
+                android:gradientRadius="46"
+                android:type="radial">
+                <item android:color="#94FF4D9D" android:offset="0" />
+                <item android:color="#00FF4D9D" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="76"
+                android:centerY="78"
+                android:gradientRadius="48"
+                android:type="radial">
+                <item android:color="#8C8A5CFF" android:offset="0" />
+                <item android:color="#008A5CFF" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="80"
+                android:centerY="28"
+                android:gradientRadius="30"
+                android:type="radial">
+                <item android:color="#52FFB84D" android:offset="0" />
+                <item android:color="#00FFB84D" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

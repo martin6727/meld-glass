@@ -159,6 +159,7 @@ fun StatsScreen(
 
     val indexChips by viewModel.indexChips.collectAsStateWithLifecycle()
     val mostPlayedSongs by viewModel.mostPlayedSongs.collectAsStateWithLifecycle()
+    val listeningSummary by viewModel.summary.collectAsStateWithLifecycle()
     val mostPlayedSongsStats by viewModel.filteredSongs.collectAsStateWithLifecycle()
     val mostPlayedArtists by viewModel.filteredArtists.collectAsStateWithLifecycle()
     val mostPlayedAlbums by viewModel.filteredAlbums.collectAsStateWithLifecycle()
@@ -389,6 +390,17 @@ fun StatsScreen(
                     currentValue = indexChips,
                     onValueUpdate = { viewModel.indexChips.value = it },
                 )
+            }
+
+            if (!isSearching && sArtists.isEmpty()) {
+                item(key = "listeningSummary") {
+                    com.metrolist.music.ui.component.ListeningSummaryHeader(
+                        summary = listeningSummary,
+                        topSong = mostPlayedSongsStats.firstOrNull(),
+                        topArtist = mostPlayedArtists.firstOrNull(),
+                        modifier = Modifier.animateItem(),
+                    )
+                }
             }
 
             if (visibleStatsPlaylists.isNotEmpty() && !isSearching && sArtists.isEmpty()) {

@@ -53,6 +53,7 @@ import com.metrolist.music.constants.AutoplayKey
 import com.metrolist.music.constants.DisableLoadMoreWhenRepeatAllKey
 import com.metrolist.music.constants.EnableGoogleCastKey
 import com.metrolist.music.constants.HistoryDuration
+import com.metrolist.music.constants.CarModeKey
 import com.metrolist.music.constants.KeepScreenOn
 import com.metrolist.music.constants.LoudnessLevel
 import com.metrolist.music.constants.LoudnessLevelKey
@@ -219,6 +220,7 @@ fun PlayerSettings(
         ResumeOnBluetoothConnectKey,
         defaultValue = false
     )
+    val (carMode, onCarModeChange) = rememberPreference(CarModeKey, defaultValue = true)
     val (keepScreenOn, onKeepScreenOnChange) = rememberPreference(
         KeepScreenOn,
         defaultValue = false
@@ -1089,6 +1091,27 @@ fun PlayerSettings(
                         )
                     },
                     onClick = { onResumeOnBluetoothConnectChange(!resumeOnBluetoothConnect) }
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.directions_car),
+                    title = { Text(stringResource(R.string.car_mode)) },
+                    description = { Text(stringResource(R.string.car_mode_desc)) },
+                    trailingContent = {
+                        Switch(
+                            checked = carMode,
+                            onCheckedChange = onCarModeChange,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (carMode) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    onClick = { onCarModeChange(!carMode) }
                 ),
                 Material3SettingsItem(
                     icon = painterResource(R.drawable.screenshot),

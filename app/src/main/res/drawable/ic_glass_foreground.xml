@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Meld Glass launcher foreground: a frosted glass disc holding an equalizer "M" -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Soft shadow under the disc -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="54"
+                android:centerY="64"
+                android:gradientRadius="32"
+                android:type="radial">
+                <item android:color="#73000000" android:offset="0" />
+                <item android:color="#00000000" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Glass disc with a light rim -->
+    <path
+        android:pathData="M54,27 a27,27 0 1,1 0,54 a27,27 0 1,1 0,-54 z"
+        android:strokeWidth="1.2"
+        android:strokeColor="#73FFFFFF">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endX="54"
+                android:endY="81"
+                android:startX="54"
+                android:startY="27"
+                android:type="linear">
+                <item android:color="#3DFFFFFF" android:offset="0" />
+                <item android:color="#0FFFFFFF" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Shine across the top of the glass -->
+    <path android:pathData="M37,39 a17,8 0 1,1 34,0 a17,8 0 1,1 -34,0 z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endX="54"
+                android:endY="47"
+                android:startX="54"
+                android:startY="31"
+                android:type="linear">
+                <item android:color="#42FFFFFF" android:offset="0" />
+                <item android:color="#00FFFFFF" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Equalizer "M": shadow, then the bars -->
+    <group android:translateY="1.2">
+        <path
+            android:fillColor="#40000000"
+            android:pathData="M39.6,42 a2.4,2.4 0 0,1 2.4,2.4 v19.2 a2.4,2.4 0 0,1 -4.8,0 v-19.2 a2.4,2.4 0 0,1 2.4,-2.4 z M46.8,50 a2.4,2.4 0 0,1 2.4,2.4 v11.2 a2.4,2.4 0 0,1 -4.8,0 v-11.2 a2.4,2.4 0 0,1 2.4,-2.4 z M54,57 a2.4,2.4 0 0,1 2.4,2.4 v4.2 a2.4,2.4 0 0,1 -4.8,0 v-4.2 a2.4,2.4 0 0,1 2.4,-2.4 z M61.2,50 a2.4,2.4 0 0,1 2.4,2.4 v11.2 a2.4,2.4 0 0,1 -4.8,0 v-11.2 a2.4,2.4 0 0,1 2.4,-2.4 z M68.4,42 a2.4,2.4 0 0,1 2.4,2.4 v19.2 a2.4,2.4 0 0,1 -4.8,0 v-19.2 a2.4,2.4 0 0,1 2.4,-2.4 z" />
+    </group>
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M39.6,42 a2.4,2.4 0 0,1 2.4,2.4 v19.2 a2.4,2.4 0 0,1 -4.8,0 v-19.2 a2.4,2.4 0 0,1 2.4,-2.4 z M46.8,50 a2.4,2.4 0 0,1 2.4,2.4 v11.2 a2.4,2.4 0 0,1 -4.8,0 v-11.2 a2.4,2.4 0 0,1 2.4,-2.4 z M54,57 a2.4,2.4 0 0,1 2.4,2.4 v4.2 a2.4,2.4 0 0,1 -4.8,0 v-4.2 a2.4,2.4 0 0,1 2.4,-2.4 z M61.2,50 a2.4,2.4 0 0,1 2.4,2.4 v11.2 a2.4,2.4 0 0,1 -4.8,0 v-11.2 a2.4,2.4 0 0,1 2.4,-2.4 z M68.4,42 a2.4,2.4 0 0,1 2.4,2.4 v19.2 a2.4,2.4 0 0,1 -4.8,0 v-19.2 a2.4,2.4 0 0,1 2.4,-2.4 z" />
+</vector>

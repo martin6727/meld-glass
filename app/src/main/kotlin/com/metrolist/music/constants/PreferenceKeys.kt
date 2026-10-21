@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 
@@ -63,6 +64,7 @@ val SeekExtraSeconds = booleanPreferencesKey("seekExtraSeconds")
 val PauseOnMute = booleanPreferencesKey("pauseOnMute")
 val ResumeOnBluetoothConnectKey = booleanPreferencesKey("resumeOnBluetoothConnect")
 val KeepScreenOn = booleanPreferencesKey("keepScreenOn")
+val CarModeKey = booleanPreferencesKey("carMode")
 val AlarmEnabledKey = booleanPreferencesKey("alarmEnabled")
 val AlarmHourKey = intPreferencesKey("alarmHour")
 val AlarmMinuteKey = intPreferencesKey("alarmMinute")
@@ -151,6 +153,14 @@ val PreventDuplicateTracksInQueueKey = booleanPreferencesKey("preventDuplicateTr
 val CrossfadeEnabledKey = booleanPreferencesKey("crossfadeEnabled")
 val CrossfadeDurationKey = floatPreferencesKey("crossfadeDurationFloat")
 val CrossfadeGaplessKey = booleanPreferencesKey("crossfadeGapless")
+val DjMixEnabledKey = booleanPreferencesKey("djMixEnabled")
+val BackgroundGlowKey = stringPreferencesKey("backgroundGlow")
+
+/** Songs the user never wants to hear again ("Not for me"); skipped wherever they come up. */
+val DislikedSongsKey = stringSetPreferencesKey("dislikedSongs")
+
+/** Soft colour streaks behind the app on dark themes. */
+enum class BackgroundGlow { ALBUM, AURORA, OCEAN, SUNSET, FOREST, OFF }
 
 val MaxImageCacheSizeKey = intPreferencesKey("maxImageCacheSize")
 val MaxSongCacheSizeKey = intPreferencesKey("maxSongCacheSize")
@@ -164,6 +174,8 @@ val DisableScreenshotKey = booleanPreferencesKey("disableScreenshot")
 val CrashReportingEnabledKey = booleanPreferencesKey("crashReportingEnabled")
 
 val EnableDynamicIconKey = booleanPreferencesKey("enableDynamicIcon")
+val AppIconStyleKey = stringPreferencesKey("appIconStyle")
+val AppIconNameKey = stringPreferencesKey("appIconName")
 
 val EnableDiscordRPCKey = booleanPreferencesKey("discordRPCEnable")
 val DiscordInfoDismissedKey = booleanPreferencesKey("discordInfoDismissed")

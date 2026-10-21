@@ -238,7 +238,23 @@ class PlayerConnection(
         Timber.tag(TAG).d("Attached to new player instance: $newPlayer")
     }
 
-    fun playQueue(queue: Queue) {
+    fun playQueue(queue: Queue) = startQueue(queue, djMix = false)
+
+    /** Plays [queue] with DJ Mix: beat-matched transitions between songs. */
+    fun playDjMix(queue: Queue) = startQueue(queue, djMix = true)
+
+    val djMixEnabled: kotlinx.coroutines.flow.StateFlow<Boolean> get() = service.djMixEnabled
+    val djMixing: kotlinx.coroutines.flow.StateFlow<Boolean> get() = service.djMixing
+
+    fun setDjMixEnabled(enabled: Boolean) = service.setDjMixEnabled(enabled)
+
+    /** "Not for me": skip this song and never play it again. */
+    fun dislikeCurrentSong() = service.dislikeCurrentSong()
+
+    private fun startQueue(
+        queue: Queue,
+        djMix: Boolean,
+    ) {
         // Block if Listen Together guest (unless internal sync)
         if (!allowInternalSync && shouldBlockPlaybackChanges?.invoke() == true) {
             Timber.tag("PlayerConnection").d("playQueue blocked - Listen Together guest")
@@ -248,6 +264,8 @@ class PlayerConnection(
             Timber.tag(TAG).w("playQueue called before player ready; delegating to service")
         }
         try {
+            // A queue started from the app is normal playback unless it came from the DJ Mix button
+            if (!allowInternalSync) service.setDjMixEnabled(djMix)
             service.playQueue(queue)
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Error in playQueue")

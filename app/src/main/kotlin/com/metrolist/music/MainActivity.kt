@@ -5,6 +5,26 @@
 
 package com.metrolist.music
 
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.unit.IntOffset
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.metrolist.music.ui.theme.GlassDefaults
+import com.metrolist.music.ui.theme.LocalGlassBackdrop
+import com.metrolist.music.ui.theme.liquidGlass
+import androidx.palette.graphics.Palette
+import com.metrolist.music.constants.BackgroundGlow
+import com.metrolist.music.constants.BackgroundGlowKey
+import com.metrolist.music.ui.theme.AmbientGlow
+import com.metrolist.music.ui.theme.GlowPalettes
+import com.metrolist.music.ui.theme.glowColors
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.ForegroundServiceStartNotAllowedException
@@ -601,7 +621,7 @@ class MainActivity : FragmentActivity() {
             }
         }
 
-        val darkTheme by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.AUTO)
+        val darkTheme by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.ON)
         val isSystemInDarkTheme = isSystemInDarkTheme()
         val useDarkTheme =
             remember(darkTheme, isSystemInDarkTheme) {
@@ -614,7 +634,7 @@ class MainActivity : FragmentActivity() {
 
         val enableLandscapeScaling by rememberPreference(EnableLandscapeScalingKey, defaultValue = false)
         val userDensityScale by rememberPreference(DensityScaleKey, defaultValue = 1f)
-        val pureBlackEnabled by rememberPreference(PureBlackKey, defaultValue = false)
+        val pureBlackEnabled by rememberPreference(PureBlackKey, defaultValue = true)
         val pureBlack =
             remember(pureBlackEnabled, useDarkTheme) {
                 pureBlackEnabled && useDarkTheme
@@ -1034,6 +1054,52 @@ class MainActivity : FragmentActivity() {
                     }
 
                 val baseBg = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer
+                // Embedded web pages (the login screens) go blank when they're also drawn into
+                // the glass layer, so the glass stops copying the screen while one is open.
+                val recordGlassBackdrop = remember { derivedStateOf { currentRoute !in WebViewRoutes } }
+                val glassBackdrop = rememberLayerBackdrop(
+                    onDraw = remember<ContentDrawScope.() -> Unit> {
+                        { if (recordGlassBackdrop.value) drawContent() }
+                    },
+                )
+
+                // Background glow: soft colour streaks behind the app (dark theme only)
+                val glowStyle by rememberEnumPreference(BackgroundGlowKey, BackgroundGlow.ALBUM)
+                var albumGlowColors by remember { mutableStateOf<List<Color>?>(null) }
+                LaunchedEffect(playerConnection, glowStyle) {
+                    val connection = playerConnection
+                    if (glowStyle != BackgroundGlow.ALBUM || connection == null) return@LaunchedEffect
+                    connection.service.currentMediaMetadata
+                        .map { it?.thumbnailUrl }
+                        .distinctUntilChanged()
+                        .collectLatest { url ->
+                            albumGlowColors =
+                                if (url == null) {
+                                    null
+                                } else {
+                                    withContext(Dispatchers.IO) {
+                                        runCatching {
+                                            val request =
+                                                ImageRequest
+                                                    .Builder(this@MainActivity)
+                                                    .data(url)
+                                                    .size(96, 96)
+                                                    .allowHardware(false)
+                                                    .build()
+                                            imageLoader.execute(request).image?.toBitmap()?.let { bitmap ->
+                                                Palette.from(bitmap).maximumColorCount(16).generate().glowColors()
+                                            }
+                                        }.getOrNull()
+                                    }
+                                }
+                        }
+                }
+                val glowColors =
+                    when {
+                        !useDarkTheme || glowStyle == BackgroundGlow.OFF -> null
+                        glowStyle == BackgroundGlow.ALBUM -> albumGlowColors ?: GlowPalettes.Aurora
+                        else -> GlowPalettes.forStyle(glowStyle)
+                    }
                 val artistNameAliases by ArtistNameAliases.aliases.collectAsStateWithLifecycle()
 
                 CompositionLocalProvider(
@@ -1048,6 +1114,7 @@ class MainActivity : FragmentActivity() {
                     LocalListenTogetherManager provides listenTogetherManager,
                     LocalChangelogState provides showChangelog,
                     LocalArtistNameAliases provides artistNameAliases,
+                    LocalGlassBackdrop provides glassBackdrop,
                 ) {
                     if (showChangelog.value) {
                         ChangelogScreen(onDismiss = { showChangelog.value = false })
@@ -1120,14 +1187,21 @@ class MainActivity : FragmentActivity() {
                                         scrollBehavior = topAppBarScrollBehavior,
                                         colors =
                                             TopAppBarDefaults.topAppBarColors(
-                                                containerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer,
-                                                scrolledContainerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer,
+                                                containerColor = Color.Transparent,
+                                                scrolledContainerColor = Color.Transparent,
                                                 titleContentColor = MaterialTheme.colorScheme.onSurface,
                                                 actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 navigationIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                             ),
                                         modifier =
-                                            Modifier.windowInsetsPadding(
+                                            Modifier
+                                                .liquidGlass(
+                                                    shape = RectangleShape,
+                                                    tint = GlassDefaults.BarTint,
+                                                    blurRadius = 24.dp,
+                                                    refraction = false,
+                                                    shadow = false,
+                                                ).windowInsetsPadding(
                                                 if (showRail) {
                                                     WindowInsets(left = NavigationBarHeight)
                                                         .add(cutoutInsets.only(WindowInsetsSides.Start))
@@ -1263,7 +1337,9 @@ class MainActivity : FragmentActivity() {
                                                         } else {
                                                             1f
                                                         }
-                                                }.background(baseBg),
+                                                }.background(
+                                                    Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))),
+                                                ),
                                     )
                                 }
                             } else {
@@ -1341,7 +1417,13 @@ class MainActivity : FragmentActivity() {
                                     onHomeLongHold = { showAccountDialog = true },
                                 )
                             }
-                            Box(Modifier.weight(1f)) {
+                            Box(
+                                Modifier
+                                    .weight(1f)
+                                    .layerBackdrop(glassBackdrop)
+                                    .background(if (pureBlack) Color.Black else MaterialTheme.colorScheme.surface),
+                            ) {
+                                glowColors?.let { AmbientGlow(it, Modifier.fillMaxSize()) }
                                 // NavHost with animations (Material 3 Expressive style)
                                 NavHost(
                                     navController = navController,
@@ -1354,42 +1436,34 @@ class MainActivity : FragmentActivity() {
                                     enterTransition = {
                                         val currentRouteIndex = routeIndexMap[targetState.destination.route] ?: -1
                                         val previousRouteIndex = routeIndexMap[initialState.destination.route] ?: -1
-
-                                        if (currentRouteIndex == -1 || currentRouteIndex > previousRouteIndex) {
-                                            slideInHorizontally { it / 8 } + fadeIn(tween(200))
-                                        } else {
-                                            slideInHorizontally { -it / 8 } + fadeIn(tween(200))
-                                        }
+                                        val dir = if (currentRouteIndex == -1 || currentRouteIndex > previousRouteIndex) 1 else -1
+                                        slideInHorizontally(PageSlideSpec) { dir * it / 6 } +
+                                            fadeIn(tween(260, delayMillis = 40)) +
+                                            scaleIn(PageScaleSpec, initialScale = 0.96f)
                                     },
                                     exitTransition = {
                                         val currentRouteIndex = routeIndexMap[initialState.destination.route] ?: -1
                                         val targetRouteIndex = routeIndexMap[targetState.destination.route] ?: -1
-
-                                        if (targetRouteIndex == -1 || targetRouteIndex > currentRouteIndex) {
-                                            slideOutHorizontally { -it / 8 } + fadeOut(tween(200))
-                                        } else {
-                                            slideOutHorizontally { it / 8 } + fadeOut(tween(200))
-                                        }
+                                        val dir = if (targetRouteIndex == -1 || targetRouteIndex > currentRouteIndex) -1 else 1
+                                        slideOutHorizontally(PageSlideSpec) { dir * it / 10 } +
+                                            fadeOut(tween(180)) +
+                                            scaleOut(PageScaleSpec, targetScale = 0.97f)
                                     },
                                     popEnterTransition = {
                                         val currentRouteIndex = routeIndexMap[targetState.destination.route] ?: -1
                                         val previousRouteIndex = routeIndexMap[initialState.destination.route] ?: -1
-
-                                        if (previousRouteIndex != -1 && previousRouteIndex < currentRouteIndex) {
-                                            slideInHorizontally { it / 8 } + fadeIn(tween(200))
-                                        } else {
-                                            slideInHorizontally { -it / 8 } + fadeIn(tween(200))
-                                        }
+                                        val dir = if (previousRouteIndex != -1 && previousRouteIndex < currentRouteIndex) 1 else -1
+                                        slideInHorizontally(PageSlideSpec) { dir * it / 6 } +
+                                            fadeIn(tween(260, delayMillis = 40)) +
+                                            scaleIn(PageScaleSpec, initialScale = 0.96f)
                                     },
                                     popExitTransition = {
                                         val currentRouteIndex = routeIndexMap[initialState.destination.route] ?: -1
                                         val targetRouteIndex = routeIndexMap[targetState.destination.route] ?: -1
-
-                                        if (currentRouteIndex != -1 && currentRouteIndex < targetRouteIndex) {
-                                            slideOutHorizontally { -it / 8 } + fadeOut(tween(200))
-                                        } else {
-                                            slideOutHorizontally { it / 8 } + fadeOut(tween(200))
-                                        }
+                                        val dir = if (currentRouteIndex != -1 && currentRouteIndex < targetRouteIndex) -1 else 1
+                                        slideOutHorizontally(PageSlideSpec) { dir * it / 10 } +
+                                            fadeOut(tween(180)) +
+                                            scaleOut(PageScaleSpec, targetScale = 0.97f)
                                     },
                                     modifier = Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
                                 ) {
@@ -1728,3 +1802,9 @@ val LocalListenTogetherManager = staticCompositionLocalOf<com.metrolist.music.li
 val LocalChangelogState = staticCompositionLocalOf<MutableState<Boolean>> { error("No LocalChangelogState provided") }
 val LocalArtistNameAliases = staticCompositionLocalOf<Map<String, String>> { emptyMap() }
 val LocalIsPlayerExpanded = compositionLocalOf { false }
+
+private val PageSlideSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntOffset.VisibilityThreshold)
+private val PageScaleSpec = spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+
+// Routes that host a WebView; see recordGlassBackdrop
+private val WebViewRoutes = setOf("login", "settings/spotify/login")

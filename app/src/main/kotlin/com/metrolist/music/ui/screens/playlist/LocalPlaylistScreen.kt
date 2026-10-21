@@ -912,7 +912,7 @@ fun LocalPlaylistHeader(
     val (darkMode, _) =
         rememberEnumPreference(
             DarkModeKey,
-            defaultValue = DarkMode.AUTO,
+            defaultValue = DarkMode.ON,
         )
 
     val cropColor = MaterialTheme.colorScheme
@@ -1443,6 +1443,21 @@ fun LocalPlaylistHeader(
                     )
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            com.metrolist.music.ui.component.DjMixButton(
+                onClick = {
+                    playerConnection.playDjMix(
+                        ListQueue(
+                            title = playlist.playlist.name,
+                            items = songs.map { it.song.toMediaItem() },
+                        ),
+                    )
+                },
+                enabled = songs.isNotEmpty(),
+            )
         }
     }
 }

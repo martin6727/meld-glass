@@ -32,6 +32,21 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import com.metrolist.music.constants.DjMixEnabledKey
+import com.metrolist.music.constants.DislikedSongsKey
+import com.metrolist.music.playback.dj.BeatAnalyzerAudioProcessor
+import com.metrolist.music.playback.dj.BeatSnapshot
+import com.metrolist.music.playback.dj.DjFilterAudioProcessor
+import com.metrolist.music.playback.dj.DjMixTiming
+import com.metrolist.music.playback.dj.TempoEstimator
+import com.metrolist.music.playback.dj.tempoMatchRatio
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.sin
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.datastore.preferences.core.Preferences
@@ -347,6 +362,52 @@ class MusicService :
     private var crossfadeGapless = true
     private var crossfadeTriggerJob: Job? = null
     private var crossfadeMessage: PlayerMessage? = null
+
+    // DJ Mix: beat-matched transitions between songs (see playback/dj)
+    val djMixEnabled = MutableStateFlow(false)
+    val djMixing = MutableStateFlow(false)
+    private val playerBeatAnalyzers = HashMap<Player, BeatAnalyzerAudioProcessor>()
+    private val playerDjFilters = HashMap<Player, DjFilterAudioProcessor>()
+    private var djPrepMessage: PlayerMessage? = null
+    private var djMixMessage: PlayerMessage? = null
+    private var djPrepJob: Job? = null
+    private var djMixJob: Job? = null
+    private var djTempoJob: Job? = null
+    private var djIncoming: DjIncoming? = null
+    private var djBaseSpeed: Float? = null
+    private var djServiceDestroyed = false
+
+    @Volatile
+    private var dislikedSongIds: Set<String> = emptySet()
+
+    // True while the saved queue position is restored at startup, which mustn't auto-play
+    private var restoringPlayerState = false
+
+    /** The next song, loaded early in a muted player and analysed before the mix. */
+    private class DjIncoming(
+        val player: ExoPlayer,
+        val mediaId: String,
+        val afterMediaId: String?,
+    ) {
+        var ready = false
+        var bpm: Double? = null
+        var confidence = 0.0
+        var periodSeconds: Double? = null
+        var startSeconds = 0.0
+
+        // Loudness normalization already applied to this player before the mix
+        var normalizationReady = false
+        var normalizationGainMb: Int? = null
+    }
+
+    private val djIncomingListener =
+        object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                Timber.tag(TAG).e(error, "DJ: next song failed to load")
+                scope.launch { releaseDjIncoming() }
+            }
+        }
+
     private var discordUpdateJob: Job? = null
 
     // SponsorBlock: per-track job that fetches skip segments and polls playback
@@ -729,7 +790,9 @@ class MusicService :
                     defaultMediaNotificationProvider.notificationChannelInfo
             },
         )
+        djMixEnabled.value = startupPrefs?.get(DjMixEnabledKey) ?: false
         player = createExoPlayer(prefs = startupPrefs!!)
+        _playerFlow.value = player
         player.addListener(this@MusicService)
         sleepTimer =
             SleepTimer(scope, player) { multiplier ->
@@ -1075,9 +1138,10 @@ class MusicService :
         combine(
             dataStore.data.map { it[AudioOffload] ?: false },
             dataStore.data.map { it[CrossfadeEnabledKey] ?: false },
-        ) { offloadPref, crossfadeEnabled ->
-            // Force disable offload if crossfade is enabled to prevent volume ramp issues
-            if (crossfadeEnabled) false else offloadPref
+            djMixEnabled,
+        ) { offloadPref, crossfadeEnabled, djMix ->
+            // Force disable offload if crossfade or DJ Mix is on: both need the audio processors
+            if (crossfadeEnabled || djMix) false else offloadPref
         }.distinctUntilChanged()
             .collectLatest(scope) { useOffload ->
                 player.setOffloadEnabled(useOffload)
@@ -1294,6 +1358,11 @@ class MusicService :
                 crossfadeGapless = gapless
             }
 
+        dataStore.data
+            .map { it[DislikedSongsKey] ?: emptySet() }
+            .distinctUntilChanged()
+            .collect(scope) { dislikedSongIds = it }
+
         // Observe and cache common preferences to avoid runBlocking reads in playback callbacks
         scope.launch {
             dataStore.data.map { it[PersistentQueueKey] ?: true }.distinctUntilChanged().collect { cachedPersistentQueue = it }
@@ -1386,7 +1455,13 @@ class MusicService :
                         playerVolume.value = playerState.volume
 
                         if (playerState.currentMediaItemIndex < player.mediaItemCount) {
-                            player.seekTo(playerState.currentMediaItemIndex, playerState.currentPosition)
+                            // Not a user skip: don't let it start playback (see onMediaItemTransition)
+                            restoringPlayerState = true
+                            try {
+                                player.seekTo(playerState.currentMediaItemIndex, playerState.currentPosition)
+                            } finally {
+                                restoringPlayerState = false
+                            }
                         }
                     }
                 }.onFailure { error ->
@@ -1428,6 +1503,8 @@ class MusicService :
         val eqProcessor = CustomEqualizerAudioProcessor()
 
         val silenceProcessor = SilenceDetectorAudioProcessor { handleLongSilenceDetected() }
+        val beatAnalyzer = BeatAnalyzerAudioProcessor().apply { enabled = djMixEnabled.value }
+        val djFilter = DjFilterAudioProcessor()
 
         // Set initial state — use pre-read prefs when available, otherwise fall back to DataStore
         val useAudioTrackPlaybackParams = if (prefs != null) {
@@ -1451,7 +1528,9 @@ class MusicService :
                 .setMediaSourceFactory(
                     createMediaSourceFactory(normalizationProcessor) { createdPlayer },
                 )
-                .setRenderersFactory(createRenderersFactory(normalizationProcessor, eqProcessor, silenceProcessor, useAudioTrackPlaybackParams))
+                .setRenderersFactory(
+                    createRenderersFactory(normalizationProcessor, eqProcessor, silenceProcessor, beatAnalyzer, djFilter, useAudioTrackPlaybackParams),
+                )
                 .setLoadControl(
                     // Start playback once ~750ms is buffered (media3's default is 1000ms) so first
                     // audio is audible a touch sooner. min/max/after-rebuffer match the media3 1.x
@@ -1479,27 +1558,30 @@ class MusicService :
         playerNormalizationProcessors[player] = normalizationProcessor
         playerSilenceProcessors[player] = silenceProcessor
         playerEqualizerProcessors[player] = eqProcessor
+        playerBeatAnalyzers[player] = beatAnalyzer
+        playerDjFilters[player] = djFilter
         equalizerService.addAudioProcessor(eqProcessor)
 
+        // Offloaded audio skips the processors, which crossfade volume ramps and DJ Mix rely on
         if (prefs != null) {
             val offload = prefs[AudioOffload] ?: false
             val crossfade = prefs[CrossfadeEnabledKey] ?: false
-            player.setOffloadEnabled(if (crossfade) false else offload)
+            player.setOffloadEnabled(if (crossfade || djMixEnabled.value) false else offload)
             player.skipSilenceEnabled = prefs[SkipSilenceKey] ?: false
         } else {
             player.apply {
                 runBlocking {
                     val offload = dataStore.get(AudioOffload, false)
                     val crossfade = dataStore.get(CrossfadeEnabledKey, false)
-                    setOffloadEnabled(if (crossfade) false else offload)
+                    setOffloadEnabled(if (crossfade || djMixEnabled.value) false else offload)
                     skipSilenceEnabled = dataStore.get(SkipSilenceKey, false)
                 }
             }
         }
         player.addAnalyticsListener(PlaybackStatsListener(false, this@MusicService))
 
-        // Cleanup handled manually in onDestroy/release
-        _playerFlow.value = player
+        // Cleanup handled manually in onDestroy/release. Not published to playerFlow here: helper
+        // players (crossfade, DJ Mix pre-loading) must stay invisible to the UI until they take over.
         return player
     }
 
@@ -2196,6 +2278,22 @@ class MusicService :
         playNext(listOf(item))
     }
 
+    /** Plays a "similar content" suggestion right away (tapped in the queue). */
+    fun playAutomixNow(
+        item: MediaItem,
+        position: Int,
+    ) {
+        playNextAutomix(item, position)
+        val start = player.currentMediaItemIndex + 1
+        val target =
+            (start until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == item.mediaId }
+                ?: (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == item.mediaId }
+        if (target != null) {
+            player.seekToDefaultPosition(target)
+            player.playWhenReady = true
+        }
+    }
+
     fun clearAutomix() {
         automixItems.value = emptyList()
     }
@@ -2519,6 +2617,10 @@ class MusicService :
             ) {
                 processor.setTargetGain(gain)
                 processor.enabled = true
+            } else if (cachedNormalizationMediaId != player.currentMediaItem?.mediaId) {
+                // This song's loudness isn't known yet (e.g. right after a crossfade): look it up
+                // instead of switching normalization off, which made the volume jump and then drop
+                setupAudioNormalization()
             } else {
                 processor.enabled = false
             }
@@ -2750,6 +2852,22 @@ class MusicService :
         mediaItem: MediaItem?,
         reason: Int,
     ) {
+        // A song marked "Not for me" came up: move past it straight away
+        if (mediaItem != null && mediaItem.mediaId in dislikedSongIds && !isCrossfading) {
+            scope.launch { skipDislikedSong() }
+        }
+
+        // Skipping to another song while paused (notification, headphones, car, mini player
+        // swipe…) starts it playing, like other music apps
+        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK &&
+            !player.playWhenReady &&
+            !restoringPlayerState &&
+            !isCrossfading &&
+            castConnectionHandler?.isCasting?.value != true &&
+            listenTogetherManager.roomState.value == null
+        ) {
+            scope.launch { if (!player.playWhenReady) player.playWhenReady = true }
+        }
         // Only natural completion transitions mark the previous track as fully cached,
         // never a manual skip or seek. Read lastTransitionedMediaId before replacing it.
         if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
@@ -4872,6 +4990,8 @@ class MusicService :
         normalizationProcessor: VolumeNormalizationAudioProcessor,
         eqProcessor: CustomEqualizerAudioProcessor,
         silenceProcessor: SilenceDetectorAudioProcessor,
+        beatAnalyzer: BeatAnalyzerAudioProcessor,
+        djFilter: DjFilterAudioProcessor,
         useAudioTrackPlaybackParams: Boolean,
     ) = object : DefaultRenderersFactory(this) {
         override fun buildAudioRenderers(
@@ -4930,8 +5050,10 @@ class MusicService :
                 DefaultAudioSink.DefaultAudioProcessorChain(
                     arrayOf(
                         normalizationProcessor,
+                        beatAnalyzer,
                         eqProcessor,
                         silenceProcessor,
+                        djFilter,
                     ),
                     SilenceSkippingAudioProcessor(2_000_000, 20_000, 256),
                     SonicAudioProcessor(),
@@ -5193,6 +5315,17 @@ class MusicService :
         closeAudioEffectSession()
         mediaLibrarySessionCallback.release()
         mediaSession?.release()
+        djServiceDestroyed = true
+        djPrepMessage?.cancel()
+        djMixMessage?.cancel()
+        djPrepJob?.cancel()
+        djMixJob?.cancel()
+        djTempoJob?.cancel()
+        djIncoming?.let { plan ->
+            plan.player.removeListener(djIncomingListener)
+            if (plan.player !== player) releaseExoPlayer(plan.player)
+        }
+        djIncoming = null
         crossfadeMessage?.cancel()
         crossfadeMessage = null
         crossfadeJob?.cancel()
@@ -5868,7 +6001,12 @@ class MusicService :
     private fun scheduleCrossfade() {
         crossfadeMessage?.cancel()
         crossfadeMessage = null
-        
+
+        if (djMixEnabled.value) {
+            scheduleDjTransition()
+            return
+        }
+
         val mediaCrossfadeDuration = crossfadeDuration.toLong()
 
         if (!crossfadeEnabled || crossfadeDuration <= 0f || player.duration == C.TIME_UNSET || player.duration <= mediaCrossfadeDuration) return
@@ -5958,61 +6096,8 @@ class MusicService :
     private fun performCrossfadeSwap() {
         isCrossfading = true
         val nextPlayer = secondaryPlayer ?: return
-        val currentPlayer = player
-
-        fadingPlayer = currentPlayer
-        player = nextPlayer
-        _playerFlow.value = player
         secondaryPlayer = null
-
-        // Do not persist the retired player's temporary repeat-off state.
-        fadingPlayer?.removeListener(this)
-        sleepTimer?.let { timer -> fadingPlayer?.removeListener(timer) }
-        fadingPlayer?.repeatMode = Player.REPEAT_MODE_OFF
-        fadingPlayer?.let {
-            val currentIndex = it.currentMediaItemIndex
-            if (currentIndex < it.mediaItemCount - 1) {
-                it.removeMediaItems(currentIndex + 1, it.mediaItemCount)
-            }
-        }
-
-        player.addListener(
-            object : Player.Listener {
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    if (isCrossfading && fadingPlayer != null) {
-                        if (isPlaying) {
-                            fadingPlayer?.play()
-                        } else {
-                            fadingPlayer?.pause()
-                        }
-                    } else {
-                        player.removeListener(this)
-                    }
-                }
-            },
-        )
-
-        nextPlayer.removeListener(secondaryPlayerListener)
-        nextPlayer.addListener(this)
-        sleepTimer?.let { nextPlayer.addListener(it) }
-
-        sleepTimer?.player = player
-
-        try {
-            mediaSession?.let { (it as MediaSession).player = player }
-        } catch (e: Exception) {
-            timber.log.Timber.e(e, "Failed to swap player in MediaSession")
-        }
-
-        // secondaryPlayer was playing this item silently in the background without
-        // `this` attached as a listener, so its real transition into this item never
-        // reached onMediaItemTransition. Re-fire it manually now that the swap is done
-        // so metadata recovery, cache marking, scrobbling, and normalization all run.
-        onMediaItemTransition(player.currentMediaItem, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
-
-        val previousAudioSessionId = fadingPlayer?.audioSessionId ?: C.AUDIO_SESSION_ID_UNSET
-
-        openAudioEffectSession()
+        val previousAudioSessionId = swapToIncomingPlayer(nextPlayer)
 
         crossfadeJob =
             scope.launch {
@@ -6057,6 +6142,71 @@ class MusicService :
             }
     }
 
+    /**
+     * Makes [nextPlayer] (already playing the next song) the main player and keeps the old one
+     * around as [fadingPlayer] for the caller to fade out. Returns the old player's audio session.
+     */
+    private fun swapToIncomingPlayer(nextPlayer: ExoPlayer): Int {
+        isCrossfading = true
+        val currentPlayer = player
+
+        fadingPlayer = currentPlayer
+        player = nextPlayer
+        _playerFlow.value = player
+
+        // Do not persist the retired player's temporary repeat-off state.
+        fadingPlayer?.removeListener(this)
+        sleepTimer?.let { timer -> fadingPlayer?.removeListener(timer) }
+        fadingPlayer?.repeatMode = Player.REPEAT_MODE_OFF
+        fadingPlayer?.let {
+            val currentIndex = it.currentMediaItemIndex
+            if (currentIndex < it.mediaItemCount - 1) {
+                it.removeMediaItems(currentIndex + 1, it.mediaItemCount)
+            }
+        }
+
+        player.addListener(
+            object : Player.Listener {
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    if (isCrossfading && fadingPlayer != null) {
+                        if (isPlaying) {
+                            fadingPlayer?.play()
+                        } else {
+                            fadingPlayer?.pause()
+                        }
+                    } else {
+                        player.removeListener(this)
+                    }
+                }
+            },
+        )
+
+        nextPlayer.removeListener(secondaryPlayerListener)
+        nextPlayer.removeListener(djIncomingListener)
+        nextPlayer.addListener(this)
+        sleepTimer?.let { nextPlayer.addListener(it) }
+
+        sleepTimer?.player = player
+
+        try {
+            mediaSession?.let { (it as MediaSession).player = player }
+        } catch (e: Exception) {
+            timber.log.Timber.e(e, "Failed to swap player in MediaSession")
+        }
+
+        // secondaryPlayer was playing this item silently in the background without
+        // `this` attached as a listener, so its real transition into this item never
+        // reached onMediaItemTransition. Re-fire it manually now that the swap is done
+        // so metadata recovery, cache marking, scrobbling, and normalization all run.
+        onMediaItemTransition(player.currentMediaItem, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
+
+        val previousAudioSessionId = fadingPlayer?.audioSessionId ?: C.AUDIO_SESSION_ID_UNSET
+
+        openAudioEffectSession()
+
+        return previousAudioSessionId
+    }
+
     private fun cleanupCrossfade(fadingPlayerSessionId: Int = C.AUDIO_SESSION_ID_UNSET) {
         fadingPlayer?.let { previousPlayer ->
             previousPlayer.stop()
@@ -6079,8 +6229,474 @@ class MusicService :
     private fun releaseExoPlayer(player: ExoPlayer) {
         playerNormalizationProcessors.remove(player)
         playerSilenceProcessors.remove(player)
+        playerBeatAnalyzers.remove(player)
+        playerDjFilters.remove(player)
         playerEqualizerProcessors.remove(player)?.let(equalizerService::removeAudioProcessor)
         player.release()
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // "Not for me": songs the user never wants to hear again
+    // ---------------------------------------------------------------------------------------------
+
+    /** Skips the current song, removes it from the queue and never plays it again. */
+    fun dislikeCurrentSong() {
+        val mediaId = player.currentMediaItem?.mediaId ?: return
+        dislikedSongIds = dislikedSongIds + mediaId
+        scope.launch(Dispatchers.IO) {
+            dataStore.edit { it[DislikedSongsKey] = (it[DislikedSongsKey] ?: emptySet()) + mediaId }
+        }
+        skipDislikedSong()
+    }
+
+    private fun skipDislikedSong() {
+        val current = player.currentMediaItem ?: return
+        if (current.mediaId !in dislikedSongIds) return
+        val index = player.currentMediaItemIndex
+        if (player.hasNextMediaItem()) {
+            player.seekToNextMediaItem()
+            if (index < player.mediaItemCount && player.currentMediaItemIndex != index) {
+                player.removeMediaItem(index)
+            }
+        } else {
+            player.pause()
+        }
+        removeDislikedFromQueue()
+    }
+
+    // Drops every upcoming or earlier copy of a disliked song from the queue (not the one playing)
+    private fun removeDislikedFromQueue() {
+        if (dislikedSongIds.isEmpty()) return
+        val currentIndex = player.currentMediaItemIndex
+        for (i in player.mediaItemCount - 1 downTo 0) {
+            if (i != currentIndex && player.getMediaItemAt(i).mediaId in dislikedSongIds) {
+                player.removeMediaItem(i)
+            }
+        }
+        scheduleCrossfade()
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // DJ Mix: the next song is loaded early and analysed, then brought in on a beat with its tempo
+    // matched to the current song, a bass swap halfway through, and a gentle beat lock.
+    // ---------------------------------------------------------------------------------------------
+
+    fun setDjMixEnabled(enabled: Boolean) {
+        if (djMixEnabled.value == enabled) return
+        djMixEnabled.value = enabled
+        playerBeatAnalyzers.values.forEach { it.enabled = enabled }
+        if (!enabled) cancelDjMix()
+        scope.launch(Dispatchers.IO) { dataStore.edit { it[DjMixEnabledKey] = enabled } }
+        if (::player.isInitialized) scheduleCrossfade()
+    }
+
+    private fun scheduleDjTransition() {
+        djPrepMessage?.cancel()
+        djPrepMessage = null
+        djMixMessage?.cancel()
+        djMixMessage = null
+        if (isCrossfading || djServiceDestroyed) return
+        if (listenTogetherManager.roomState.value != null) return
+        if (player.repeatMode == REPEAT_MODE_ONE || !player.hasNextMediaItem()) return
+        val duration = player.duration
+        if (duration == C.TIME_UNSET || duration < DjMixTiming.MIN_TRACK_MS) return
+
+        val currentId = player.currentMediaItem?.mediaId ?: return
+        val nextId = player.getMediaItemAt(player.nextMediaItemIndex).mediaId
+        if (nextId in dislikedSongIds) {
+            // Never mix into a disliked song: drop it from the queue (this reschedules)
+            scope.launch { removeDislikedFromQueue() }
+            return
+        }
+        // The queue or the song changed since we started preparing: start over
+        djIncoming?.let { if (it.mediaId != nextId || it.afterMediaId != currentId) releaseDjIncoming() }
+
+        val mixAt = duration - DjMixTiming.MIX_MS
+        val prepareAt = mixAt - DjMixTiming.PREPARE_LEAD_MS
+        val position = player.currentPosition
+        if (position >= mixAt) return
+
+        if (djIncoming == null) {
+            if (position < prepareAt) {
+                djPrepMessage =
+                    player.createMessage { _, _ ->
+                        if (djMixEnabled.value && player.currentMediaItem?.mediaId == currentId) beginDjPreparation()
+                    }.apply {
+                        setLooper(Looper.getMainLooper())
+                        setPosition(prepareAt)
+                        send()
+                    }
+            } else {
+                beginDjPreparation()
+            }
+        }
+
+        djMixMessage =
+            player.createMessage { _, _ ->
+                val timer = sleepTimer
+                if (djMixEnabled.value && player.isPlaying && player.currentMediaItem?.mediaId == currentId &&
+                    (timer == null || !timer.pauseWhenSongEnd)
+                ) {
+                    startDjMix()
+                }
+            }.apply {
+                setLooper(Looper.getMainLooper())
+                setPosition(mixAt)
+                send()
+            }
+    }
+
+    private fun beginDjPreparation() {
+        if (djIncoming != null || isCrossfading || !djMixEnabled.value || djServiceDestroyed) return
+        val nextIndex = player.nextMediaItemIndex
+        if (nextIndex == C.INDEX_UNSET) return
+
+        val incomingPlayer = createExoPlayer()
+        val plan = DjIncoming(incomingPlayer, player.getMediaItemAt(nextIndex).mediaId, player.currentMediaItem?.mediaId)
+        djIncoming = plan
+        val analyzer = playerBeatAnalyzers[incomingPlayer]
+        try {
+            val items = (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
+            incomingPlayer.addListener(djIncomingListener)
+            incomingPlayer.setMediaItems(items)
+            incomingPlayer.seekTo(nextIndex, 0)
+            incomingPlayer.repeatMode = player.repeatMode
+            incomingPlayer.volume = 0f
+            analyzer?.enabled = true
+            // Skim the intro muted at double speed to learn its tempo before the mix
+            analyzer?.speed = DjMixTiming.ANALYSIS_SPEED
+            incomingPlayer.setPlaybackParameters(PlaybackParameters(DjMixTiming.ANALYSIS_SPEED))
+            incomingPlayer.prepare()
+            incomingPlayer.playWhenReady = true
+        } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "DJ: failed to prepare the next song")
+            releaseDjIncoming()
+            return
+        }
+
+        djPrepJob =
+            scope.launch {
+                val deadline = SystemClock.elapsedRealtime() + DjMixTiming.ANALYSIS_TIMEOUT_MS
+                var snapshot: BeatSnapshot? = null
+                while (isActive && SystemClock.elapsedRealtime() < deadline) {
+                    delay(200)
+                    val latest = analyzer?.snapshot
+                    if (latest != null) snapshot = latest
+                    if ((latest?.analyzedSeconds ?: 0.0) >= DjMixTiming.ANALYSIS_SECONDS) break
+                    if (incomingPlayer.playbackState == Player.STATE_ENDED) break
+                }
+                if (!isActive) return@launch
+                incomingPlayer.pause()
+                snapshot?.let { s ->
+                    plan.bpm = s.bpm
+                    plan.confidence = s.confidence
+                    plan.periodSeconds = s.periodMediaSeconds
+                    plan.startSeconds = (s.firstBeatSeconds ?: 0.0).coerceIn(0.0, DjMixTiming.MAX_INTRO_SKIP_SECONDS)
+                }
+                analyzer?.speed = 1f
+                incomingPlayer.setPlaybackParameters(PlaybackParameters(1f))
+                incomingPlayer.seekTo(nextIndex, (plan.startSeconds * 1000).toLong())
+                primeDjNormalization(plan)
+                plan.ready = true
+                Timber.tag(TAG).d(
+                    "DJ: next song %.1f BPM (confidence %.2f), first beat at %.2f s",
+                    plan.bpm ?: 0.0,
+                    plan.confidence,
+                    plan.startSeconds,
+                )
+            }
+    }
+
+    private fun releaseDjIncoming() {
+        djPrepJob?.cancel()
+        djPrepJob = null
+        djIncoming?.let { plan ->
+            plan.player.removeListener(djIncomingListener)
+            if (plan.player !== player && plan.player !== fadingPlayer) {
+                try {
+                    plan.player.stop()
+                    plan.player.clearMediaItems()
+                } catch (_: Exception) {
+                }
+                releaseExoPlayer(plan.player)
+            }
+        }
+        djIncoming = null
+    }
+
+    private fun startDjMix() {
+        if (isCrossfading || djServiceDestroyed) return
+        val plan = djIncoming
+        if (plan == null || !plan.ready || plan.player.playerError != null) {
+            Timber.tag(TAG).d("DJ: next song wasn't ready in time, using a plain crossfade")
+            releaseDjIncoming()
+            startCrossfade()
+            return
+        }
+        djIncoming = null
+        djPrepMessage?.cancel()
+        djPrepMessage = null
+        djTempoJob?.cancel()
+
+        val outgoing = player
+        val incoming = plan.player
+        val outAnalyzer = playerBeatAnalyzers[outgoing]
+        val inAnalyzer = playerBeatAnalyzers[incoming]
+        val outSnapshot = outAnalyzer?.snapshot
+        val baseSpeed = djBaseSpeed ?: outgoing.playbackParameters.speed
+        val inBpm = plan.bpm
+        val ratio =
+            if (outSnapshot != null && inBpm != null &&
+                outSnapshot.confidence >= TempoEstimator.MIN_CONFIDENCE &&
+                plan.confidence >= TempoEstimator.MIN_CONFIDENCE
+            ) {
+                tempoMatchRatio(inBpm, outSnapshot.bpm)
+            } else {
+                null
+            }
+        val matched = ratio != null && abs(ratio - 1.0) <= DjMixTiming.MAX_TEMPO_STRETCH
+        val matchSpeed = (baseSpeed * (if (matched) ratio!! else 1.0)).toFloat()
+        djBaseSpeed = baseSpeed
+        djMixing.value = true
+        Timber.tag(TAG).d(
+            "DJ: mixing %.1f -> %.1f BPM, %s (speed %.3f)",
+            outSnapshot?.bpm ?: 0.0,
+            inBpm ?: 0.0,
+            if (matched) "beat-matched" else "blend only",
+            matchSpeed,
+        )
+
+        djMixJob =
+            scope.launch {
+                var swapped = false
+                var previousSessionId = C.AUDIO_SESSION_ID_UNSET
+                try {
+                    if (matched) waitForOutgoingBeat(outAnalyzer)
+                    incoming.removeListener(djIncomingListener)
+                    playerDjFilters[incoming]?.bassCut = 1f
+                    incoming.volume = 0f
+                    inAnalyzer?.speed = matchSpeed
+                    incoming.setPlaybackParameters(PlaybackParameters(matchSpeed))
+                    incoming.play()
+                    previousSessionId = swapToIncomingPlayer(incoming)
+                    swapped = true
+                    // Hand the new song's loudness over as the current one so nothing re-levels it mid-song
+                    if (plan.normalizationReady) {
+                        cachedNormalizationMediaId = plan.mediaId
+                        cachedNormalizationGainMb = plan.normalizationGainMb
+                        cachedNormalizationEnabled = plan.normalizationGainMb != null
+                    } else {
+                        setupAudioNormalization()
+                    }
+                    if (outgoing.shuffleModeEnabled) {
+                        player.shuffleModeEnabled = true
+                        val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
+                        applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
+                    }
+                    runDjAutomation(outgoing, incoming, plan, matched, matchSpeed)
+                } finally {
+                    if (!djServiceDestroyed) {
+                        if (swapped) {
+                            finishDjMix(incoming, previousSessionId)
+                        } else {
+                            releaseExoPlayer(incoming)
+                            djMixing.value = false
+                            djBaseSpeed = null
+                        }
+                    }
+                }
+            }
+    }
+
+    /**
+     * Sets the next song's loudness normalization on its own player before it's heard, so it starts
+     * at the level it will keep. Uses the saved loudness, else what the player already got when its
+     * stream loaded, else the current song's level as a stand-in (songs in one playlist are usually
+     * mastered alike; a later correction glides in instead of jumping).
+     */
+    private suspend fun primeDjNormalization(plan: DjIncoming) {
+        val processor = playerNormalizationProcessors[plan.player] ?: return
+        if (!normalizationEnabledCached) {
+            applyAudioNormalization(processor, plan.mediaId, null, null, updateCache = false)
+            plan.normalizationGainMb = null
+            plan.normalizationReady = true
+            return
+        }
+        val format = withContext(Dispatchers.IO) { database.format(plan.mediaId).first() }
+        val gain =
+            when {
+                format != null && (format.loudnessDb != null || format.perceptualLoudnessDb != null) ->
+                    normalizationGainMb(format.loudnessDb, format.perceptualLoudnessDb, loudnessLevelCached.targetLufs)
+                processor.enabled && processor.targetGainMb != 0 -> processor.targetGainMb
+                cachedNormalizationEnabled -> cachedNormalizationGainMb
+                else -> null
+            }
+        if (gain != null) {
+            processor.setTargetGain(gain)
+            processor.enabled = true
+        }
+        plan.normalizationGainMb = gain
+        plan.normalizationReady = gain != null
+    }
+
+    // Waits until the outgoing song is about to play a beat, so the next song starts on it
+    private suspend fun waitForOutgoingBeat(analyzer: BeatAnalyzerAudioProcessor?) {
+        val snapshot = analyzer?.snapshot ?: return
+        val now = System.nanoTime()
+        // The analyser hears audio before the speaker does
+        var beat = snapshot.beatNanos + DjMixTiming.OUTPUT_LEAD_MS * 1_000_000.0
+        val earliest = now + 60_000_000.0
+        if (beat < earliest) beat += ceil((earliest - beat) / snapshot.periodNanos) * snapshot.periodNanos
+        val waitMs = ((beat - now) / 1e6).toLong()
+        if (waitMs > 0) delay(waitMs.coerceAtMost(2_000))
+    }
+
+    private suspend fun runDjAutomation(
+        outgoing: ExoPlayer,
+        incoming: ExoPlayer,
+        plan: DjIncoming,
+        matched: Boolean,
+        matchSpeed: Float,
+    ) {
+        val mixMs = if (matched) DjMixTiming.MIX_MS else DjMixTiming.BLEND_MS
+        val outFilter = playerDjFilters[outgoing]
+        val inFilter = playerDjFilters[incoming]
+        val outAnalyzer = playerBeatAnalyzers[outgoing]
+        val inAnalyzer = playerBeatAnalyzers[incoming]
+        val inPeriod = plan.periodSeconds
+        val halfPi = (PI / 2).toFloat()
+        var elapsed = 0L
+        var last = SystemClock.elapsedRealtime()
+        var lastNudge = 0L
+        var currentSpeed = matchSpeed
+
+        while (elapsed < mixMs) {
+            delay(DjMixTiming.TICK_MS)
+            val now = SystemClock.elapsedRealtime()
+            if (incoming.isPlaying) elapsed += now - last
+            last = now
+            if (player !== incoming) break
+
+            val p = (elapsed.toFloat() / mixMs).coerceIn(0f, 1f)
+            val full = calculateEffectiveVolume()
+            // New song rises over the first half; old song falls over the second half
+            val inGain = if (p < 0.45f) sin(p / 0.45f * halfPi) else 1f
+            val outGain = if (p < 0.55f) 1f else cos((p - 0.55f) / 0.45f * halfPi)
+            try {
+                incoming.volume = full * inGain
+                outgoing.volume = full * outGain
+            } catch (_: Exception) {
+                break
+            }
+            // Bass swap in the middle: the new song takes over the low end
+            val swap = ((p - 0.45f) / 0.1f).coerceIn(0f, 1f)
+            inFilter?.bassCut = 1f - swap
+            outFilter?.bassCut = swap
+
+            // Beat lock: nudge the new song a little faster or slower until its beats sit on the old song's
+            if (matched && inPeriod != null && p in 0.15f..0.9f && now - lastNudge >= DjMixTiming.NUDGE_EVERY_MS) {
+                lastNudge = now
+                val error = beatPhaseError(outAnalyzer, inAnalyzer, inPeriod)
+                if (error != null) {
+                    val nudge = (error * DjMixTiming.PHASE_GAIN).coerceIn(-DjMixTiming.MAX_NUDGE, DjMixTiming.MAX_NUDGE)
+                    val target = (matchSpeed * (1 + nudge)).toFloat()
+                    if (abs(target - currentSpeed) > 0.0015f) {
+                        currentSpeed = target
+                        inAnalyzer?.speed = target
+                        incoming.setPlaybackParameters(PlaybackParameters(target))
+                    }
+                }
+            } else if (p > 0.9f && currentSpeed != matchSpeed) {
+                currentSpeed = matchSpeed
+                inAnalyzer?.speed = matchSpeed
+                incoming.setPlaybackParameters(PlaybackParameters(matchSpeed))
+            }
+        }
+    }
+
+    /**
+     * How far the incoming song's next beat is from the outgoing song's beat grid, as a fraction of
+     * a beat. Positive means the incoming song is late.
+     */
+    private fun beatPhaseError(
+        outAnalyzer: BeatAnalyzerAudioProcessor?,
+        inAnalyzer: BeatAnalyzerAudioProcessor?,
+        inPeriodSeconds: Double,
+    ): Double? {
+        val outSnapshot = outAnalyzer?.snapshot ?: return null
+        val clock = inAnalyzer?.clock ?: return null
+        if (clock.anchorNanos.isNaN()) return null
+        // The incoming song was started exactly on a beat, so its beats sit at whole periods from there
+        val beatIndex = ceil(clock.mediaSeconds / inPeriodSeconds)
+        val inBeat = inAnalyzer.nanosForSongTime(beatIndex * inPeriodSeconds) ?: return null
+        val inPeriodNanos = inPeriodSeconds / inAnalyzer.speed.coerceAtLeast(0.25f) * 1e9
+        val period = min(outSnapshot.periodNanos, inPeriodNanos)
+        if (period <= 0) return null
+        val diff = (inBeat - outSnapshot.beatNanos).toDouble()
+        var wrapped = ((diff % period) + period) % period
+        if (wrapped > period / 2) wrapped -= period
+        return wrapped / period
+    }
+
+    private fun finishDjMix(
+        incoming: ExoPlayer,
+        previousSessionId: Int,
+    ) {
+        playerDjFilters[incoming]?.bassCut = 0f
+        try {
+            fadingPlayer?.volume = 0f
+        } catch (_: Exception) {
+        }
+        cleanupCrossfade(fadingPlayerSessionId = previousSessionId)
+        djMixing.value = false
+        val base = djBaseSpeed
+        if (base != null && player === incoming && abs(incoming.playbackParameters.speed - base) > 0.001f) {
+            restoreDjTempo(incoming, base)
+        } else {
+            djBaseSpeed = null
+        }
+        scheduleCrossfade()
+    }
+
+    // Glides the new song from the matched tempo back to its own speed, too slowly to notice
+    private fun restoreDjTempo(
+        target: ExoPlayer,
+        baseSpeed: Float,
+    ) {
+        djTempoJob?.cancel()
+        djTempoJob =
+            scope.launch {
+                val from = target.playbackParameters.speed
+                val steps = (DjMixTiming.TEMPO_RESTORE_MS / DjMixTiming.TEMPO_STEP_MS).toInt()
+                for (i in 1..steps) {
+                    delay(DjMixTiming.TEMPO_STEP_MS)
+                    while (target === player && !target.isPlaying) delay(DjMixTiming.TEMPO_STEP_MS)
+                    if (target !== player) return@launch
+                    val speed = from + (baseSpeed - from) * i / steps
+                    playerBeatAnalyzers[target]?.speed = speed
+                    target.setPlaybackParameters(PlaybackParameters(speed))
+                }
+                djBaseSpeed = null
+            }
+    }
+
+    private fun cancelDjMix() {
+        djPrepMessage?.cancel()
+        djPrepMessage = null
+        djMixMessage?.cancel()
+        djMixMessage = null
+        releaseDjIncoming()
+        djTempoJob?.cancel()
+        djTempoJob = null
+        // A running mix finishes its own cleanup when cancelled
+        djMixJob?.cancel()
+        djMixJob = null
+        val base = djBaseSpeed
+        if (base != null && ::player.isInitialized && !isCrossfading) {
+            playerBeatAnalyzers[player]?.speed = base
+            player.setPlaybackParameters(PlaybackParameters(base))
+            djBaseSpeed = null
+        }
     }
 
     companion object {

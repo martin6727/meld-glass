@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Split icon: one circle cut diagonally, YouTube Music style on the left, Spotify style on the right -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group>
+        <clip-path android:pathData="M0,0 L85.2,0 L22.8,108 L0,108 Z" />
+        <path android:pathData="M54,24 a30,30 0 1,1 0,60 a30,30 0 1,1 0,-60 z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:endX="0"
+                    android:endY="84"
+                    android:startX="0"
+                    android:startY="24"
+                    android:type="linear">
+                    <item android:color="#FFFF2A3D" android:offset="0" />
+                    <item android:color="#FFE00024" android:offset="1" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path
+            android:pathData="M54,36.5 a17.5,17.5 0 1,1 0,35 a17.5,17.5 0 1,1 0,-35 z"
+            android:strokeWidth="3"
+            android:strokeColor="#FFFFFFFF" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M49.5,46.5 L49.5,61.5 L62.5,54 Z" />
+    </group>
+
+    <group>
+        <clip-path android:pathData="M85.2,0 L108,0 L108,108 L22.8,108 Z" />
+        <path android:pathData="M54,24 a30,30 0 1,1 0,60 a30,30 0 1,1 0,-60 z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:endX="0"
+                    android:endY="84"
+                    android:startX="0"
+                    android:startY="24"
+                    android:type="linear">
+                    <item android:color="#FF2BE36B" android:offset="0" />
+                    <item android:color="#FF17C557" android:offset="1" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path
+            android:pathData="M36,47.5 Q54,39 72,48.5"
+            android:strokeWidth="4.8"
+            android:strokeColor="#FF121212"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M38.5,55.5 Q54,48.5 69.5,56.5"
+            android:strokeWidth="4"
+            android:strokeColor="#FF121212"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M41,63 Q54,57 67,63.5"
+            android:strokeWidth="3.2"
+            android:strokeColor="#FF121212"
+            android:strokeLineCap="round" />
+    </group>
+
+    <!-- The slash -->
+    <path
+        android:pathData="M85.2,0 L22.8,108"
+        android:strokeWidth="2.6"
+        android:strokeColor="#FF0B0B0D" />
+</vector>

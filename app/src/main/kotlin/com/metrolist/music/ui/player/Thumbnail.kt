@@ -236,7 +236,7 @@ fun Thumbnail(
     val cropAlbumArt by rememberPreference(CropAlbumArtKey, false)
     val playerBackground by rememberEnumPreference(
         key = PlayerBackgroundStyleKey,
-        defaultValue = PlayerBackgroundStyle.DEFAULT
+        defaultValue = PlayerBackgroundStyle.BLUR
     )
     
     // Pre-calculate text color based on background style
@@ -494,6 +494,10 @@ private fun ThumbnailHeader(
                     modifier = Modifier.basicMarquee()
                 )
             }
+            com.metrolist.music.ui.component.DjMixStatusChip(
+                contentColor = textColor,
+                modifier = Modifier.padding(top = 8.dp),
+            )
         }
     }
 }

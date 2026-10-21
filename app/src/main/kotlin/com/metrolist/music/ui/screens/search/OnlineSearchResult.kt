@@ -110,6 +110,8 @@ import com.metrolist.music.ui.menu.YouTubeArtistMenu
 import com.metrolist.music.ui.menu.YouTubePlaylistMenu
 import com.metrolist.music.ui.menu.YouTubeSongMenu
 import com.metrolist.music.utils.SearchRoutes
+import com.metrolist.music.utils.dataStore
+import androidx.datastore.preferences.core.edit
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.utils.isSpotifyId
 import com.metrolist.music.utils.stripSpotifyPrefix
@@ -497,6 +499,26 @@ fun OnlineSearchResult(
                         }
                     },
         )
+
+        // YouTube Music / Spotify switch: reruns this search on the other service
+        val spotifyEnabled by com.metrolist.music.utils.rememberPreference(com.metrolist.music.constants.EnableSpotifyKey, false)
+        val spotifyToken by com.metrolist.music.utils.rememberPreference(com.metrolist.music.constants.SpotifyAccessTokenKey, "")
+        if (spotifyEnabled && spotifyToken.isNotEmpty()) {
+            val switchContext = androidx.compose.ui.platform.LocalContext.current
+            com.metrolist.music.ui.component.SearchSourceSwitch(
+                useSpotify = isSpotifySearch,
+                onSelect = { spotify ->
+                    coroutineScope.launch {
+                        // Save first so the reopened search reads the new choice
+                        switchContext.dataStore.edit { it[com.metrolist.music.constants.UseSpotifySearchKey] = spotify }
+                        navController.navigate(SearchRoutes.resultRoute(viewModel.query)) {
+                            popUpTo(SearchRoutes.ROUTE) { inclusive = true }
+                        }
+                    }
+                },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
 
         // Filter chips always on top of any overlay so they remain clickable while
         // the suggestion overlay is visible (see #69).

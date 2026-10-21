@@ -177,6 +177,16 @@ fun AppearanceSettings(
         }
 
     var showMiniPlayerBackgroundDialog by rememberSaveable { mutableStateOf(false) }
+    var showBackgroundGlowDialog by rememberSaveable { mutableStateOf(false) }
+    var showAppIconDialog by rememberSaveable { mutableStateOf(false) }
+    if (showAppIconDialog) {
+        com.metrolist.music.ui.component.AppIconPickerDialog(onDismiss = { showAppIconDialog = false })
+    }
+    val (backgroundGlow, onBackgroundGlowChange) =
+        rememberEnumPreference(
+            com.metrolist.music.constants.BackgroundGlowKey,
+            defaultValue = com.metrolist.music.constants.BackgroundGlow.ALBUM,
+        )
 
     val (useNewMiniPlayerDesign, onUseNewMiniPlayerDesignChange) =
         rememberPreference(
@@ -196,7 +206,7 @@ fun AppearanceSettings(
     val (playerBackground, onPlayerBackgroundChange) =
         rememberEnumPreference(
             PlayerBackgroundStyleKey,
-            defaultValue = PlayerBackgroundStyle.DEFAULT,
+            defaultValue = PlayerBackgroundStyle.BLUR,
         )
 
     val (defaultOpenTab, onDefaultOpenTabChange) =
@@ -983,28 +993,13 @@ fun AppearanceSettings(
                             ),
                         )
                     }
+                    // Replaces the old "dynamic icon" switch, which toggled the same launcher entries
                     add(
                         Material3SettingsItem(
                             icon = painterResource(R.drawable.palette),
-                            title = { Text(stringResource(R.string.enable_dynamic_icon)) },
-                            description = { Text(stringResource(R.string.enable_dynamic_icon_desc)) },
-                            trailingContent = {
-                                Switch(
-                                    checked = enableDynamicIcon,
-                                    onCheckedChange = onEnableDynamicIconChange,
-                                    thumbContent = {
-                                        Icon(
-                                            painter =
-                                                painterResource(
-                                                    id = if (enableDynamicIcon) R.drawable.check else R.drawable.close,
-                                                ),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(SwitchDefaults.IconSize),
-                                        )
-                                    },
-                                )
-                            },
-                            onClick = { onEnableDynamicIconChange(!enableDynamicIcon) },
+                            title = { Text(stringResource(R.string.app_icon)) },
+                            description = { Text(stringResource(R.string.app_icon_desc)) },
+                            onClick = { showAppIconDialog = true },
                         ),
                     )
                     add(
@@ -1015,8 +1010,30 @@ fun AppearanceSettings(
                             onClick = { navController.navigate("settings/appearance/theme") },
                         ),
                     )
+                    add(
+                        Material3SettingsItem(
+                            icon = painterResource(R.drawable.gradient),
+                            title = { Text(stringResource(R.string.background_glow)) },
+                            description = { Text(backgroundGlowName(backgroundGlow)) },
+                            onClick = { showBackgroundGlowDialog = true },
+                        ),
+                    )
                 },
         )
+
+        if (showBackgroundGlowDialog) {
+            EnumDialog(
+                onDismiss = { showBackgroundGlowDialog = false },
+                onSelect = {
+                    onBackgroundGlowChange(it)
+                    showBackgroundGlowDialog = false
+                },
+                title = stringResource(R.string.background_glow),
+                current = backgroundGlow,
+                values = com.metrolist.music.constants.BackgroundGlow.entries,
+                valueText = { backgroundGlowName(it) },
+            )
+        }
 
         Spacer(modifier = Modifier.height(27.dp))
 
@@ -1869,3 +1886,16 @@ enum class LyricsPosition {
     CENTER,
     RIGHT,
 }
+
+@Composable
+private fun backgroundGlowName(glow: com.metrolist.music.constants.BackgroundGlow): String =
+    stringResource(
+        when (glow) {
+            com.metrolist.music.constants.BackgroundGlow.ALBUM -> R.string.glow_album
+            com.metrolist.music.constants.BackgroundGlow.AURORA -> R.string.glow_aurora
+            com.metrolist.music.constants.BackgroundGlow.OCEAN -> R.string.glow_ocean
+            com.metrolist.music.constants.BackgroundGlow.SUNSET -> R.string.glow_sunset
+            com.metrolist.music.constants.BackgroundGlow.FOREST -> R.string.glow_forest
+            com.metrolist.music.constants.BackgroundGlow.OFF -> R.string.glow_off
+        },
+    )

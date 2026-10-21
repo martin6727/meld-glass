@@ -19,7 +19,15 @@ import androidx.compose.runtime.saveable.SaverScope
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.Typography
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.palette.graphics.Palette
+import com.metrolist.music.R
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamiccolor.ColorSpec
 import com.materialkolor.rememberDynamicColorScheme
@@ -64,7 +72,44 @@ fun MetrolistTheme(
     // Use standard MaterialTheme instead of MaterialExpressiveTheme
     MaterialTheme(
         colorScheme = colorScheme,
+        typography = AppTypography,
         content = content,
+    )
+}
+
+private fun figtree(weight: FontWeight) =
+    Font(R.font.figtree, weight, variationSettings = FontVariation.Settings(FontVariation.weight(weight.weight)))
+
+val Figtree = FontFamily(
+    figtree(FontWeight.Normal),
+    figtree(FontWeight.Medium),
+    figtree(FontWeight.SemiBold),
+    figtree(FontWeight.Bold),
+    figtree(FontWeight.ExtraBold),
+)
+
+private val AppTypography = Typography().let { t ->
+    fun TextStyle.f(weight: FontWeight? = null, tracking: Float? = null) = copy(
+        fontFamily = Figtree,
+        fontWeight = weight ?: fontWeight,
+        letterSpacing = tracking?.sp ?: letterSpacing,
+    )
+    t.copy(
+        displayLarge = t.displayLarge.f(FontWeight.ExtraBold, -1f),
+        displayMedium = t.displayMedium.f(FontWeight.ExtraBold, -0.8f),
+        displaySmall = t.displaySmall.f(FontWeight.Bold, -0.5f),
+        headlineLarge = t.headlineLarge.f(FontWeight.Bold, -0.5f),
+        headlineMedium = t.headlineMedium.f(FontWeight.Bold, -0.4f),
+        headlineSmall = t.headlineSmall.f(FontWeight.Bold, -0.3f),
+        titleLarge = t.titleLarge.f(FontWeight.Bold, -0.3f),
+        titleMedium = t.titleMedium.f(FontWeight.SemiBold),
+        titleSmall = t.titleSmall.f(FontWeight.SemiBold),
+        bodyLarge = t.bodyLarge.f(),
+        bodyMedium = t.bodyMedium.f(),
+        bodySmall = t.bodySmall.f(),
+        labelLarge = t.labelLarge.f(FontWeight.SemiBold),
+        labelMedium = t.labelMedium.f(FontWeight.SemiBold),
+        labelSmall = t.labelSmall.f(FontWeight.Medium),
     )
 }
 
@@ -86,10 +131,23 @@ internal fun Palette.rankedColors(
     true,
 )
 
+// OLED: true black base with near-black layered surfaces (Netflix / YT Music style)
 fun ColorScheme.pureBlack(apply: Boolean) =
     if (apply) copy(
         surface = Color.Black,
-        background = Color.Black
+        background = Color.Black,
+        surfaceDim = Color.Black,
+        surfaceBright = Color(0xFF26262A),
+        surfaceContainerLowest = Color.Black,
+        surfaceContainerLow = Color(0xFF0A0A0C),
+        surfaceContainer = Color(0xFF111114),
+        surfaceContainerHigh = Color(0xFF18181C),
+        surfaceContainerHighest = Color(0xFF202025),
+        surfaceVariant = Color(0xFF1C1C21),
+        onSurface = Color(0xFFF5F5F7),
+        onBackground = Color(0xFFF5F5F7),
+        onSurfaceVariant = Color(0xFFA1A1AA),
+        outlineVariant = Color(0xFF2A2A30),
     ) else this
 
 val ColorSaver = object : Saver<Color, Int> {

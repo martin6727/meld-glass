@@ -1001,7 +1001,12 @@ fun Queue(
                                     Modifier
                                         .fillMaxWidth()
                                         .combinedClickable(
-                                            onClick = {},
+                                            // Tapping a suggestion plays it straight away
+                                            onClick = {
+                                                if (!isListenTogetherGuest) {
+                                                    playerConnection.service.playAutomixNow(item, index)
+                                                }
+                                            },
                                             onLongClick = {
                                                 menuState.show {
                                                     QueueMenu(

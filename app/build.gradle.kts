@@ -37,7 +37,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = applicationIdOverride ?: "com.meld.app"
+        applicationId = applicationIdOverride ?: "com.meld.glass"
         minSdk = 26
         targetSdk = 36
         versionCode = 28
@@ -45,7 +45,7 @@ android {
         val baseVersionName = requireNotNull(versionName)
         buildConfigField("String", "BASE_VERSION_NAME", "\"$baseVersionName\"")
         buildCommit?.let { versionName = "$baseVersionName+$it" }
-        resValue("string", "app_name", appNameOverride ?: "Meld")
+        resValue("string", "app_name", appNameOverride ?: "Meld Glass")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -146,7 +146,7 @@ android {
             }
             isDebuggable = true
             if (appNameOverride == null) {
-                resValue("string", "app_name", "Meld Debug")
+                resValue("string", "app_name", "Meld Glass Debug")
             }
             signingConfig =
                 if (workflowDebugKeystoreFile != null) {
@@ -298,6 +298,7 @@ dependencies {
     implementation(libs.ucrop)
 
     implementation(libs.shimmer)
+    implementation(libs.backdrop)
 
     implementation(libs.media3)
     implementation(libs.media3.session)

@@ -5,6 +5,44 @@
 
 package com.metrolist.music.ui.component
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.metrolist.music.ui.theme.liquidGlass
+import com.metrolist.music.ui.theme.pressScale
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Spacer
@@ -139,80 +177,150 @@ fun AppNavigationBar(
     onSearchLongClick: (() -> Unit)? = null,
     onHomeLongHold: (() -> Unit)? = null,
 ) {
-    val containerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer
-    val contentColor = if (pureBlack) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
     val haptics = LocalHapticFeedback.current
     val viewConfiguration = LocalViewConfiguration.current
+    val pillHeight = if (slimNav) 52.dp else 64.dp
+    val pillShape = RoundedCornerShape(50)
+    val selectedIndex = navigationItems.indexOfFirst { isRouteSelected(currentRoute, it.route, navigationItems) }
 
-    NavigationBar(
-        modifier = modifier,
-        containerColor = containerColor,
-        contentColor = contentColor
-    ) {
-        navigationItems.forEach { screen ->
-            val isSelected = remember(currentRoute, screen.route) {
-                isRouteSelected(currentRoute, screen.route, navigationItems)
-            }
-            val currentIsSelected by rememberUpdatedState(isSelected)
-            val iconRes = remember(isSelected, screen) {
-                if (isSelected) screen.iconIdActive else screen.iconIdInactive
-            }
+    Box(modifier = modifier.fillMaxWidth()) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
+                .padding(
+                    start = 12.dp,
+                    end = 12.dp,
+                    top = if (slimNav) 2.dp else 4.dp,
+                    bottom = if (slimNav) 10.dp else 12.dp,
+                )
+                .fillMaxWidth()
+                .height(pillHeight)
+                .liquidGlass(pillShape),
+        ) {
+            val itemWidth = maxWidth / navigationItems.size.coerceAtLeast(1)
+            val indicatorOffset by animateDpAsState(
+                targetValue = itemWidth * selectedIndex.coerceAtLeast(0),
+                animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow),
+                label = "navIndicator",
+            )
+            val indicatorAlpha by animateFloatAsState(
+                targetValue = if (selectedIndex >= 0) 1f else 0f,
+                label = "navIndicatorAlpha",
+            )
 
-            val isSearchItem = screen == Screens.Search && onSearchLongClick != null
-            val isHomeHoldItem = screen == Screens.Home && onHomeLongHold != null
-            val interactionSource = remember { MutableInteractionSource() }
+            // Sliding highlight behind the selected tab
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(indicatorOffset.roundToPx(), 0) }
+                    .width(itemWidth)
+                    .fillMaxHeight()
+                    .padding(5.dp)
+                    .graphicsLayer { alpha = indicatorAlpha }
+                    .clip(pillShape)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.White.copy(alpha = 0.22f), Color.White.copy(alpha = 0.10f)),
+                        ),
+                    )
+                    .border(0.75.dp, Color.White.copy(alpha = 0.18f), pillShape),
+            )
 
-            // Long press detection using InteractionSource
-            if (isSearchItem || isHomeHoldItem) {
-                LaunchedEffect(interactionSource) {
-                    var isLongClick = false
-                    interactionSource.interactions.collectLatest { interaction ->
-                        when (interaction) {
-                            is PressInteraction.Press -> {
-                                isLongClick = false
-                                delay(if (isHomeHoldItem) 15_000L else viewConfiguration.longPressTimeoutMillis)
-                                isLongClick = true
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                if (isHomeHoldItem) onHomeLongHold.invoke() else onSearchLongClick?.invoke()
-                            }
-                            is PressInteraction.Release -> {
-                                if (!isLongClick) {
-                                    onItemClick(screen, currentIsSelected)
+            Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                navigationItems.forEach { screen ->
+                    val isSelected = remember(currentRoute, screen.route) {
+                        isRouteSelected(currentRoute, screen.route, navigationItems)
+                    }
+                    val currentIsSelected by rememberUpdatedState(isSelected)
+                    val iconRes = remember(isSelected, screen) {
+                        if (isSelected) screen.iconIdActive else screen.iconIdInactive
+                    }
+
+                    val isSearchItem = screen == Screens.Search && onSearchLongClick != null
+                    val isHomeHoldItem = screen == Screens.Home && onHomeLongHold != null
+                    val interactionSource = remember { MutableInteractionSource() }
+
+                    // Long press detection using InteractionSource
+                    if (isSearchItem || isHomeHoldItem) {
+                        LaunchedEffect(interactionSource) {
+                            var isLongClick = false
+                            interactionSource.interactions.collectLatest { interaction ->
+                                when (interaction) {
+                                    is PressInteraction.Press -> {
+                                        isLongClick = false
+                                        delay(if (isHomeHoldItem) 15_000L else viewConfiguration.longPressTimeoutMillis)
+                                        isLongClick = true
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        if (isHomeHoldItem) onHomeLongHold.invoke() else onSearchLongClick?.invoke()
+                                    }
+                                    is PressInteraction.Release -> {
+                                        if (!isLongClick) {
+                                            onItemClick(screen, currentIsSelected)
+                                        }
+                                    }
+                                    is PressInteraction.Cancel -> {
+                                        isLongClick = false
+                                    }
                                 }
                             }
-                            is PressInteraction.Cancel -> {
-                                isLongClick = false
-                            }
+                        }
+                    }
+
+                    val contentColor by animateColorAsState(
+                        targetValue = if (isSelected) Color.White else Color.White.copy(alpha = 0.6f),
+                        animationSpec = tween(220),
+                        label = "navItemColor",
+                    )
+                    val iconScale by animateFloatAsState(
+                        targetValue = if (isSelected) 1.1f else 1f,
+                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                        label = "navItemScale",
+                    )
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .pressScale(interactionSource, 0.86f)
+                            .clickable(
+                                interactionSource = interactionSource,
+                                indication = null,
+                                onClick = {
+                                    if (!isSearchItem && !isHomeHoldItem) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        onItemClick(screen, currentIsSelected)
+                                    }
+                                    // Long presses are handled via InteractionSource
+                                },
+                            ),
+                    ) {
+                        Icon(
+                            painter = painterResource(id = iconRes),
+                            contentDescription = stringResource(screen.titleId),
+                            tint = contentColor,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .graphicsLayer {
+                                    scaleX = iconScale
+                                    scaleY = iconScale
+                                },
+                        )
+                        if (!slimNav) {
+                            Text(
+                                text = stringResource(screen.titleId),
+                                color = contentColor,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 3.dp),
+                            )
                         }
                     }
                 }
             }
-
-            NavigationBarItem(
-                selected = isSelected,
-                onClick = {
-                    if (!isSearchItem && !isHomeHoldItem) {
-                        onItemClick(screen, currentIsSelected)
-                    }
-                    // Long presses are handled via InteractionSource
-                },
-                interactionSource = interactionSource,
-                icon = {
-                    Icon(
-                        painter = painterResource(id = iconRes),
-                        contentDescription = stringResource(screen.titleId)
-                    )
-                },
-                label = if (!slimNav) {
-                    {
-                        Text(
-                            text = stringResource(screen.titleId),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                } else null
-            )
         }
     }
 }

@@ -240,6 +240,18 @@ fun SpotifyLikedSongsScreen(
                                 Spacer(modifier = Modifier.size(8.dp))
                                 Text(stringResource(R.string.play))
                             }
+                            Spacer(modifier = Modifier.size(12.dp))
+                            com.metrolist.music.ui.component.DjMixButton(
+                                onClick = {
+                                    playerConnection.playDjMix(
+                                        SpotifyLikedSongsQueue(
+                                            startIndex = 0,
+                                            mapper = viewModel.mapper,
+                                            tracks = sortedTracks,
+                                        ),
+                                    )
+                                },
+                            )
                         }
                     }
                 }

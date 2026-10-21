@@ -5,6 +5,26 @@
 
 package com.metrolist.music.ui.component
 
+import android.os.Build
+import android.view.WindowManager
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -143,40 +163,77 @@ fun AccountSettingsDialog(
     latestVersionName: String,
 ) {
     val navController = LocalNavController.current
+    // Pops out of the avatar (top right) and shrinks back into it when closed
+    val visibleState = remember { MutableTransitionState(false).apply { targetState = true } }
+    val close = { visibleState.targetState = false }
+    LaunchedEffect(visibleState.isIdle, visibleState.targetState) {
+        if (!visibleState.targetState && visibleState.isIdle) onDismiss()
+    }
+
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = close,
         properties =
             DialogProperties(
                 usePlatformDefaultWidth = false,
                 dismissOnClickOutside = true,
             ),
     ) {
+        // Frosted blur over the app behind the menu (Android 12+)
+        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+        SideEffect {
+            dialogWindow?.let { window ->
+                window.setDimAmount(0.35f)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    window.attributes = window.attributes.also { it.blurBehindRadius = 90 }
+                }
+            }
+        }
+
         Box(
             modifier =
                 Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
                         detectTapGestures(
-                            onTap = { onDismiss() }
+                            onTap = { close() }
                         )
                     },
             contentAlignment = Alignment.TopCenter,
         ) {
-            Surface(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 72.dp, start = 16.dp, end = 16.dp)
-                        .clip(RoundedCornerShape(28.dp)),
-                shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 8.dp,
+            AnimatedVisibility(
+                visibleState = visibleState,
+                enter = scaleIn(
+                    animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow),
+                    initialScale = 0.6f,
+                    transformOrigin = TransformOrigin(0.92f, 0f),
+                ) + fadeIn(tween(160)),
+                exit = scaleOut(
+                    animationSpec = tween(170),
+                    targetScale = 0.7f,
+                    transformOrigin = TransformOrigin(0.92f, 0f),
+                ) + fadeOut(tween(150)),
             ) {
-                AccountSettings(
-                    navController = navController,
-                    onClose = onDismiss,
-                    latestVersionName = latestVersionName,
-                )
+                val cardShape = RoundedCornerShape(32.dp)
+                Box(
+                    modifier =
+                        Modifier
+                            .padding(top = 60.dp, start = 12.dp, end = 12.dp)
+                            .widthIn(max = 440.dp)
+                            .fillMaxWidth()
+                            .shadow(32.dp, cardShape, ambientColor = Color.Black, spotColor = Color.Black)
+                            .clip(cardShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f))
+                            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), cardShape)
+                            // Taps on the card itself shouldn't close it
+                            .pointerInput(Unit) { detectTapGestures { } },
+                ) {
+                    AccountSettings(
+                        navController = navController,
+                        onClose = close,
+                        latestVersionName = latestVersionName,
+                    )
+                }
             }
         }
     }

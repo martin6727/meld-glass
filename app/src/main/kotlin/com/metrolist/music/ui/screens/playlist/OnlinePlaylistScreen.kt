@@ -724,5 +724,22 @@ private fun OnlinePlaylistHeader(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            com.metrolist.music.ui.component.DjMixButton(
+                onClick = {
+                    playerConnection.playDjMix(
+                        YouTubePlaylistQueue(
+                            playlistId = playlist.id,
+                            playlistTitle = playlist.title,
+                            initialSongs = songs,
+                            initialContinuation = continuation,
+                        ),
+                    )
+                },
+                enabled = !isListenTogetherGuest && songs.isNotEmpty(),
+            )
+        }
     }
 }

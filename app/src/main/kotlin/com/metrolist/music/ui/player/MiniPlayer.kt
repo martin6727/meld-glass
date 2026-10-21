@@ -17,6 +17,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -122,6 +123,14 @@ import coil3.toBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.metrolist.music.ui.theme.PlayerColorExtractor
+import com.metrolist.music.ui.theme.liquidGlass
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import com.metrolist.music.ui.theme.pressScale
 import androidx.compose.animation.core.spring
 
 /**
@@ -146,6 +155,7 @@ fun MiniPlayer(
     durationState: MutableLongState,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
+    onLongClick: (() -> Unit)? = null,
 ) {
     val useNewMiniPlayerDesign by rememberPreference(UseNewMiniPlayerDesignKey, true)
 
@@ -157,6 +167,7 @@ fun MiniPlayer(
             progressState = progressState,
             modifier = modifier,
             onClick = onClick,
+            onLongClick = onLongClick,
         )
     } else {
         Box(modifier = modifier.fillMaxWidth()) {
@@ -164,7 +175,22 @@ fun MiniPlayer(
                 progressState = progressState,
                 modifier = Modifier.align(Alignment.Center),
                 onClick = onClick,
+                onLongClick = onLongClick,
             )
+        }
+    }
+}
+
+// Long-press opens the song menu, with a little buzz so it feels deliberate
+@Composable
+private fun rememberLongPress(onLongClick: (() -> Unit)?): (() -> Unit)? {
+    val haptics = LocalHapticFeedback.current
+    return remember(onLongClick, haptics) {
+        onLongClick?.let { action ->
+            {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                action()
+            }
         }
     }
 }
@@ -174,12 +200,15 @@ fun MiniPlayer(
 // ============================================================================
 
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private fun NewMiniPlayer(
     progressState: ProgressState,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
+    onLongClick: (() -> Unit)? = null,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
+    val longPress = rememberLongPress(onLongClick)
 
     // Theme settings - these rarely change
     val miniPlayerBackground by rememberEnumPreference(
@@ -192,7 +221,7 @@ private fun NewMiniPlayer(
     // Computed from the dominant Palette swatch when the track changes.
     var coverIsLight by remember { mutableStateOf(false) }
     val isSystemInDarkTheme = isSystemInDarkTheme()
-    val darkTheme by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.AUTO)
+    val darkTheme by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.ON)
     val useDarkTheme =
         remember(darkTheme, isSystemInDarkTheme) {
             if (darkTheme == DarkMode.AUTO) isSystemInDarkTheme else darkTheme == DarkMode.ON
@@ -385,13 +414,22 @@ private fun NewMiniPlayer(
                     .then(if (isTabletLandscape) Modifier.width(500.dp).align(Alignment.Center) else Modifier.fillMaxWidth())
                     .height(64.dp)
                     .offset { IntOffset(offsetXAnimatable.value.roundToInt(), 0) }
-                    .clip(RoundedCornerShape(32.dp))
-                    .background(color = backgroundColor)
-                    .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(32.dp))
-                    .clickable(
+                    .then(
+                        if (miniPlayerBackground == MiniPlayerBackgroundStyle.DEFAULT) {
+                            Modifier.liquidGlass(RoundedCornerShape(32.dp))
+                        } else {
+                            Modifier
+                                .clip(RoundedCornerShape(32.dp))
+                                .background(color = backgroundColor)
+                                .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(32.dp))
+                        },
+                    )
+                    .pressScale(interactionSource, 0.97f)
+                    .combinedClickable(
                         interactionSource = interactionSource,
                         indication = LocalIndication.current,
-                        onClick = onClick
+                        onClick = onClick,
+                        onLongClick = longPress,
                     ),
         ) {
             when (miniPlayerBackground) {
@@ -472,19 +510,6 @@ private fun NewMiniPlayer(
                     Spacer(modifier = Modifier.width(12.dp))
                 }
 
-// Subscribe button - isolated composable
-                mediaMetadata?.artists?.firstOrNull()?.id?.let { artistId ->
-                    SubscribeButton(
-                        artistId = artistId,
-                        metadata = mediaMetadata!!,
-                        primaryColor = primaryColor,
-                        outlineColor = outlineColor,
-                        onSurfaceColor = onSurfaceColor,
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
 // Favorite button - isolated composable
                 mediaMetadata?.let { FavoriteButton(
                     songId = it.id,
@@ -493,6 +518,16 @@ private fun NewMiniPlayer(
                     onSurfaceColor = onSurfaceColor,
                 )
                 }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                MiniPlayerPlayPauseButton(
+                    playbackState = playbackState,
+                    isCasting = isCasting,
+                    castHandler = castHandler,
+                    playerConnection = playerConnection,
+                    listenTogetherManager = listenTogetherManager,
+                )
             }
         }
     }
@@ -515,12 +550,6 @@ private fun NewMiniPlayerPlayButton(
     listenTogetherManager: ListenTogetherManager?,
     coverIsLight: Boolean,
 ) {
-    val isPlaying by playerConnection.isPlaying.collectAsState()
-    val castIsPlaying by castHandler?.castIsPlaying?.collectAsState() ?: remember { mutableStateOf(false) }
-    val effectiveIsPlaying = if (isCasting) castIsPlaying else isPlaying
-    val isListenTogetherGuest = listenTogetherManager?.let { it.isInRoom && !it.isHost } ?: false
-    val isMuted by playerConnection.isMuted.collectAsStateWithLifecycle()
-
     val trackColor = outlineColor.copy(alpha = 0.2f)
     val strokeWidth = 3.dp
 
@@ -561,28 +590,15 @@ private fun NewMiniPlayerPlayButton(
                     )
                 },
     ) {
-        // Thumbnail with play/pause overlay
+        // Cover art inside the progress ring. Play/pause has its own button on the right,
+        // so tapping the cover opens the player like the rest of the bar.
         Box(
             contentAlignment = Alignment.Center,
             modifier =
                 Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .border(1.dp, outlineColor.copy(alpha = 0.3f), CircleShape)
-                    .clickable {
-                        if (isListenTogetherGuest) {
-                            playerConnection.toggleMute()
-                            return@clickable
-                        }
-                        if (isCasting) {
-                            if (castIsPlaying) castHandler?.pause() else castHandler?.play()
-                        } else if (playbackState == Player.STATE_ENDED) {
-                            playerConnection.player.seekTo(0, 0)
-                            playerConnection.player.playWhenReady = true
-                        } else {
-                            playerConnection.togglePlayPause()
-                        }
-                    },
+                    .border(1.dp, outlineColor.copy(alpha = 0.3f), CircleShape),
         ) {
             mediaMetadata?.let { metadata ->
                 val thumbnailUrl =
@@ -596,33 +612,71 @@ private fun NewMiniPlayerPlayButton(
                     modifier = Modifier.fillMaxSize().clip(CircleShape),
                 )
             }
+        }
+    }
+}
 
-            // Always show a play/pause/replay/volume icon over a dark scrim so the
-            // current playback state is unambiguous and visible against any cover.
-            val iconRes = when {
-                isListenTogetherGuest -> if (isMuted) R.drawable.volume_off else R.drawable.volume_up
-                playbackState == Player.STATE_ENDED -> R.drawable.replay
-                effectiveIsPlaying -> R.drawable.pause
-                else -> R.drawable.play
-            }
-            // Bright covers + white icon would wash out; flip to black there.
-            val iconTint = if (coverIsLight) Color.Black else Color.White
-            val scrimColor = if (coverIsLight) {
-                Color.White.copy(alpha = 0.35f)
-            } else {
-                Color.Black.copy(alpha = 0.4f)
-            }
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .background(scrimColor, CircleShape),
-            )
+/** Solid play/pause button at the right end of the mini player. */
+@Composable
+private fun MiniPlayerPlayPauseButton(
+    playbackState: Int,
+    isCasting: Boolean,
+    castHandler: CastConnectionHandler?,
+    playerConnection: PlayerConnection,
+    listenTogetherManager: ListenTogetherManager?,
+) {
+    val isPlaying by playerConnection.isPlaying.collectAsState()
+    val castIsPlaying by castHandler?.castIsPlaying?.collectAsState() ?: remember { mutableStateOf(false) }
+    val effectiveIsPlaying = if (isCasting) castIsPlaying else isPlaying
+    val isListenTogetherGuest = listenTogetherManager?.let { it.isInRoom && !it.isHost } ?: false
+    val isMuted by playerConnection.isMuted.collectAsStateWithLifecycle()
+    val haptics = LocalHapticFeedback.current
+    val interactionSource = remember { MutableInteractionSource() }
+
+    val iconRes = when {
+        isListenTogetherGuest -> if (isMuted) R.drawable.volume_off else R.drawable.volume_up
+        playbackState == Player.STATE_ENDED -> R.drawable.replay
+        effectiveIsPlaying -> R.drawable.pause
+        else -> R.drawable.play
+    }
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier =
+            Modifier
+                .size(44.dp)
+                .pressScale(interactionSource, 0.85f)
+                .clip(CircleShape)
+                .background(Color.White)
+                .clickable(interactionSource = interactionSource, indication = null) {
+                    haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                    if (isListenTogetherGuest) {
+                        playerConnection.toggleMute()
+                        return@clickable
+                    }
+                    if (isCasting) {
+                        if (castIsPlaying) castHandler?.pause() else castHandler?.play()
+                    } else if (playbackState == Player.STATE_ENDED) {
+                        playerConnection.player.seekTo(0, 0)
+                        playerConnection.player.playWhenReady = true
+                    } else {
+                        playerConnection.togglePlayPause()
+                    }
+                },
+    ) {
+        AnimatedContent(
+            targetState = iconRes,
+            transitionSpec = {
+                (scaleIn(spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium), initialScale = 0.4f) + fadeIn())
+                    .togetherWith(scaleOut(targetScale = 0.4f) + fadeOut())
+            },
+            label = "miniPlayPause",
+        ) { res ->
             Icon(
-                painter = painterResource(iconRes),
+                painter = painterResource(res),
                 contentDescription = null,
-                tint = iconTint,
-                modifier = Modifier.size(20.dp),
+                tint = Color.Black,
+                modifier = Modifier.size(24.dp),
             )
         }
     }
@@ -689,12 +743,15 @@ private fun NewMiniPlayerSongInfo(
 // ============================================================================
 
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private fun LegacyMiniPlayer(
     progressState: ProgressState,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
+    onLongClick: (() -> Unit)? = null,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
+    val longPress = rememberLongPress(onLongClick)
     val pureBlack by rememberPreference(PureBlackMiniPlayerKey, defaultValue = false)
 
     val playbackState by playerConnection.playbackState.collectAsState()
@@ -763,10 +820,11 @@ private fun LegacyMiniPlayer(
                     } else {
                         MaterialTheme.colorScheme.surfaceContainer
                     },
-                ).clickable(
+                ).combinedClickable(
                     interactionSource = interactionSource,
                     indication = LocalIndication.current,
-                    onClick = onClick
+                    onClick = onClick,
+                    onLongClick = longPress,
                 ).let { baseModifier ->
                     if (swipeThumbnail) {
                         baseModifier.pointerInput(Unit) {

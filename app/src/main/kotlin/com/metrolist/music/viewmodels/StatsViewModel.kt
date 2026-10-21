@@ -148,6 +148,34 @@ constructor(
                 )
             }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
+    /** Headline numbers for the selected period: minutes, plays, songs, artists and a per-day breakdown. */
+    val summary =
+        combine(selectedOption, indexChips) { option, index -> option to index }
+            .flatMapLatest { (option, index) ->
+                val from = statToPeriod(option, index)
+                val to =
+                    if (option == OptionStats.CONTINUOUS || index == 0) {
+                        LocalDateTime.now()
+                    } else {
+                        statToPeriod(option, index - 1)
+                    }
+                combine(
+                    database.getTotalPlayTimeInRange(from, to),
+                    database.getPlayCountInRange(from, to),
+                    database.getUniqueSongCountInRange(from, to),
+                    database.getUniqueArtistCountInRange(from, to),
+                    database.getDailyPlayTimeInRange(from, to),
+                ) { playTime, plays, songs, artists, days ->
+                    ListeningSummary(
+                        minutes = (playTime ?: 0L) / 60_000L,
+                        plays = plays,
+                        songs = songs,
+                        artists = artists,
+                        dailyMinutes = days.map { it.day to it.playTime / 60_000f },
+                    )
+                }
+            }.stateIn(viewModelScope, SharingStarted.Lazily, null)
+
     val firstEvent =
         database
             .firstEvent()
@@ -438,3 +466,12 @@ constructor(
         }
     }
 }
+
+/** Totals shown at the top of the stats screen. [dailyMinutes] pairs a day number with minutes listened. */
+data class ListeningSummary(
+    val minutes: Long,
+    val plays: Int,
+    val songs: Int,
+    val artists: Int,
+    val dailyMinutes: List<Pair<Long, Float>>,
+)

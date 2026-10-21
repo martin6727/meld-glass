@@ -326,6 +326,19 @@ fun SpotifyPlaylistScreen(
                                 Spacer(modifier = Modifier.size(8.dp))
                                 Text(stringResource(R.string.play))
                             }
+                            Spacer(modifier = Modifier.size(12.dp))
+                            com.metrolist.music.ui.component.DjMixButton(
+                                onClick = {
+                                    playerConnection.playDjMix(
+                                        SpotifyPlaylistQueue(
+                                            playlistId = viewModel.playlistId,
+                                            initialTracks = sortedItems.mapNotNull { it.track },
+                                            startIndex = 0,
+                                            mapper = viewModel.mapper,
+                                        ),
+                                    )
+                                },
+                            )
                         }
                     }
                 }

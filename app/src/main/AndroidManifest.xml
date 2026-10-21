@@ -205,6 +205,216 @@
             </intent-filter>
         </activity-alias>
 
+        <activity-alias
+            android:name=".IconGlassMusic"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_label_music"
+            android:roundIcon="@mipmap/ic_launcher"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconGlassMeld"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_label_meld"
+            android:roundIcon="@mipmap/ic_launcher"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconGlassPlayer"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_label_player"
+            android:roundIcon="@mipmap/ic_launcher"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconSplitMeldGlass"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_icon_split"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_icon_split"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconSplitMusic"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_icon_split"
+            android:label="@string/app_label_music"
+            android:roundIcon="@mipmap/ic_icon_split"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconSplitMeld"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_icon_split"
+            android:label="@string/app_label_meld"
+            android:roundIcon="@mipmap/ic_icon_split"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconSplitPlayer"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_icon_split"
+            android:label="@string/app_label_player"
+            android:roundIcon="@mipmap/ic_icon_split"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconMonoMeldGlass"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_icon_mono"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_icon_mono"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconMonoMusic"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_icon_mono"
+            android:label="@string/app_label_music"
+            android:roundIcon="@mipmap/ic_icon_mono"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconMonoMeld"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_icon_mono"
+            android:label="@string/app_label_meld"
+            android:roundIcon="@mipmap/ic_icon_mono"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconMonoPlayer"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_icon_mono"
+            android:label="@string/app_label_player"
+            android:roundIcon="@mipmap/ic_icon_mono"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconClassicMeldGlass"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_icon_classic"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_icon_classic"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconClassicMusic"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_icon_classic"
+            android:label="@string/app_label_music"
+            android:roundIcon="@mipmap/ic_icon_classic"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconClassicMeld"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_icon_classic"
+            android:label="@string/app_label_meld"
+            android:roundIcon="@mipmap/ic_icon_classic"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconClassicPlayer"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_icon_classic"
+            android:label="@string/app_label_player"
+            android:roundIcon="@mipmap/ic_icon_classic"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <activity
             android:name=".discord.DiscordOAuthActivity"
             android:exported="true"
